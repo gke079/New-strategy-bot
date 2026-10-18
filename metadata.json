@@ -1,0 +1,6 @@
+{
+  "name": "TickEdge - Synthetic Digits Analyzer & Bot Strategy",
+  "description": "Real-time tick digit analyzer, frequency statistics, and automated bot strategy execution for Deriv synthetic indices.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
