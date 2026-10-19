@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Market, Tick, BotStrategyConfig, BotMetrics, Trade, UserAccount } from './types';
+import { Market, Tick, BotStrategyConfig, BotMetrics, Trade, UserAccount, TradeContractType } from './types';
 import { DEFAULT_MARKET } from './services/markets';
 import { TickStreamEngine, ConnectionStatus } from './services/tickEngine';
 import { calculateDigitStats, calculateRatioStats } from './services/statsEngine';
@@ -13,6 +13,7 @@ import { TicksWindowControl } from './components/TicksWindowControl';
 import { DigitCirclesGrid } from './components/DigitCirclesGrid';
 import { RatioCards } from './components/RatioCards';
 import { LastDigitsRibbon } from './components/LastDigitsRibbon';
+import { QuickTradeBar } from './components/QuickTradeBar';
 import { BotStrategyPanel } from './components/BotStrategyPanel';
 import { ChartsView } from './components/ChartsView';
 import { TradesHistoryView } from './components/TradesHistoryView';
@@ -26,8 +27,11 @@ export default function App() {
   const [ticks, setTicks] = useState<Tick[]>([]);
   const [currentTick, setCurrentTick] = useState<Tick | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [connectionInfo, setConnectionInfo] = useState<string>('Connecting to Deriv WebSocket...');
+  const [isLiveDeriv, setIsLiveDeriv] = useState<boolean>(false);
   const [tickSpeedMs, setTickSpeedMs] = useState<number>(1000);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
+  const [isPlacingManualTrade, setIsPlacingManualTrade] = useState<boolean>(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       return (localStorage.getItem('tickedge_theme') as 'dark' | 'light') || 'dark';
@@ -55,13 +59,19 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   // User Account & Virtual Demo Balance
-  const [userAccount, setUserAccount] = useState<UserAccount>({
-    isLoggedIn: false,
-    username: 'TraderEdge',
-    email: 'trader@tickedge.io',
-    balance: 10000.0,
-    currency: 'USD',
-    isDemo: true,
+  const [userAccount, setUserAccount] = useState<UserAccount>(() => {
+    const savedToken = localStorage.getItem('tickedge_deriv_token') || '';
+    const savedAcct = localStorage.getItem('tickedge_deriv_acct') || 'TraderEdge';
+    return {
+      isLoggedIn: Boolean(savedToken),
+      username: savedAcct,
+      email: 'trader@tickedge.io',
+      balance: 10000.0,
+      currency: 'USD',
+      isDemo: true,
+      token: savedToken,
+      isRealExecutionEnabled: false,
+    };
   });
 
   // ==========================================
@@ -71,7 +81,6 @@ export default function App() {
     try {
       const saved = localStorage.getItem('tickedge_digits_bot_strategy');
       if (saved) return JSON.parse(saved);
-      // Legacy fallback
       const legacy = localStorage.getItem('tickedge_saved_strategy');
       if (legacy) return JSON.parse(legacy);
     } catch {}
@@ -175,7 +184,6 @@ export default function App() {
       setTrades((prev) => [trade, ...prev.slice(0, 199)]);
       setDigitsBotMetrics(metrics);
       setUserAccount((prev) => ({ ...prev, balance }));
-      // Sync balance to Charts bot so it has current available funds
       chartsBotExecutorRef.current?.setBalance(balance);
     });
 
@@ -188,7 +196,6 @@ export default function App() {
       setTrades((prev) => [trade, ...prev.slice(0, 199)]);
       setChartsBotMetrics(metrics);
       setUserAccount((prev) => ({ ...prev, balance }));
-      // Sync balance to Digits bot so it has current available funds
       digitsBotExecutorRef.current?.setBalance(balance);
     });
 
@@ -196,9 +203,53 @@ export default function App() {
       setChartsBotRunning(running);
     });
 
-    // Listen to connection status
-    const unsubStatus = engine.onStatusChange((status) => {
+    // Listen to connection status and live Deriv indicator
+    const unsubStatus = engine.onStatusChange((status, isLive, info) => {
       setConnectionStatus(status);
+      setIsLiveDeriv(isLive);
+      if (info) setConnectionInfo(info);
+    });
+
+    // Listen to Deriv Account authorization
+    const unsubAccount = engine.onAccountAuthorize((account) => {
+      setUserAccount((prev) => ({
+        ...prev,
+        isLoggedIn: true,
+        username: account.loginid,
+        loginid: account.loginid,
+        balance: account.balance,
+        currency: account.currency,
+        isDemo: account.is_virtual,
+        tokenScopes: account.scopes,
+      }));
+      digitsBotExecutorRef.current?.setBalance(account.balance);
+      chartsBotExecutorRef.current?.setBalance(account.balance);
+    });
+
+    // Listen to real-time balance stream from Deriv
+    const unsubBalance = engine.onBalanceUpdate((balance, currency) => {
+      setUserAccount((prev) => ({ ...prev, balance, currency }));
+      digitsBotExecutorRef.current?.setBalance(balance);
+      chartsBotExecutorRef.current?.setBalance(balance);
+    });
+
+    // Listen to real contract settlement updates
+    const unsubTradeSettled = engine.onTradeSettled((settlement) => {
+      setTrades((prev) => {
+        const idx = prev.findIndex((t) => t.derivContractId === settlement.contractId);
+        if (idx !== -1) {
+          const updated = [...prev];
+          updated[idx] = {
+            ...updated[idx],
+            status: settlement.status,
+            profit: settlement.profit,
+            exitPrice: settlement.exitPrice,
+            exitDigit: settlement.exitDigit,
+          };
+          return updated;
+        }
+        return prev;
+      });
     });
 
     // Subscribe to tick stream
@@ -223,28 +274,33 @@ export default function App() {
       }
     });
 
-    // Connect to Deriv Live WebSocket by default
-    engine.connectDeriv('1089', '');
-
     // Check for Deriv OAuth redirect return params
     const params = new URLSearchParams(window.location.search);
     const token1 = params.get('token1');
     const acct1 = params.get('acct1');
     const cur1 = params.get('cur1');
     if (token1) {
+      localStorage.setItem('tickedge_deriv_token', token1);
+      if (acct1) localStorage.setItem('tickedge_deriv_acct', acct1);
       setUserAccount((prev) => ({
         ...prev,
         isLoggedIn: true,
         username: acct1 || 'DerivTrader',
         currency: cur1 || 'USD',
+        token: token1,
       }));
-      engine.connectDeriv('1089', token1);
+      let activeAppId = localStorage.getItem('tickedge_deriv_app_id') || '1089';
+      if (activeAppId === '61554') activeAppId = '1089';
+      engine.connectDeriv(activeAppId, token1);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     return () => {
       unsubTicks();
       unsubStatus();
+      unsubAccount();
+      unsubBalance();
+      unsubTradeSettled();
       unsubDigitsTrade();
       unsubDigitsStatus();
       unsubChartsTrade();
@@ -252,6 +308,17 @@ export default function App() {
       engine.destroy();
     };
   }, []);
+
+  // Sync real execution toggle with bot executors
+  useEffect(() => {
+    const isReal = Boolean(userAccount.isRealExecutionEnabled && userAccount.isLoggedIn);
+    if (digitsBotExecutorRef.current) {
+      digitsBotExecutorRef.current.setRealExecution(isReal, engineRef.current);
+    }
+    if (chartsBotExecutorRef.current) {
+      chartsBotExecutorRef.current.setRealExecution(isReal, engineRef.current);
+    }
+  }, [userAccount.isRealExecutionEnabled, userAccount.isLoggedIn]);
 
   // Sync market changes
   const handleSelectMarket = (market: Market) => {
@@ -288,6 +355,130 @@ export default function App() {
   const handleResetBuffer = () => {
     if (engineRef.current) {
       engineRef.current.clearBuffer();
+    }
+  };
+
+  // ==========================================
+  // ONE-CLICK QUICK TRADE HANDLER
+  // ==========================================
+  const handleQuickTrade = async (
+    contractType: TradeContractType,
+    predictionDigit?: number,
+    customStake?: number
+  ) => {
+    if (!engineRef.current || !currentTick) return;
+    setIsPlacingManualTrade(true);
+    const stake = customStake ?? 1.0;
+
+    try {
+      if (userAccount.isRealExecutionEnabled && userAccount.isLoggedIn) {
+        // Execute real live contract on Deriv exchange
+        const settlement = await engineRef.current.buyContract({
+          symbol: selectedMarket.id,
+          contractType,
+          predictionDigit: predictionDigit ?? 2,
+          stake,
+          duration: 1,
+          durationUnit: 't',
+          currency: userAccount.currency,
+        });
+
+        const tradeRecord: Trade = {
+          id: `DERIV-${settlement.contractId}`,
+          timestamp: Date.now(),
+          marketId: selectedMarket.id,
+          strategyName: 'Manual One-Click (Deriv Real)',
+          contractType,
+          prediction: `${contractType} ${predictionDigit !== undefined ? predictionDigit : ''}`.trim(),
+          stake,
+          entryPrice: currentTick.quote,
+          exitPrice: settlement.exitPrice,
+          exitDigit: settlement.exitDigit,
+          profit: settlement.profit,
+          status: settlement.status,
+          balanceAfter: Number((userAccount.balance + settlement.profit).toFixed(2)),
+          botSource: 'manual',
+          derivContractId: settlement.contractId,
+          isRealTrade: true,
+        };
+
+        setTrades((prev) => [tradeRecord, ...prev.slice(0, 199)]);
+        setUserAccount((prev) => ({
+          ...prev,
+          balance: Number((prev.balance + settlement.profit).toFixed(2)),
+        }));
+
+        if (settlement.status === 'won') {
+          soundManager.playWin();
+        } else {
+          soundManager.playLoss();
+        }
+      } else {
+        // Simulated execution against genuine live tick
+        const digit = currentTick.lastDigit;
+        const pred = predictionDigit ?? 2;
+        let won = false;
+        let mult = 1.95;
+
+        if (contractType === 'OVER') {
+          won = digit > pred;
+          mult = Number((9.5 / Math.max(1, 9 - pred)).toFixed(2));
+        } else if (contractType === 'UNDER') {
+          won = digit < pred;
+          mult = Number((9.5 / Math.max(1, pred)).toFixed(2));
+        } else if (contractType === 'EVEN') {
+          won = digit % 2 === 0;
+          mult = 1.95;
+        } else if (contractType === 'ODD') {
+          won = digit % 2 !== 0;
+          mult = 1.95;
+        } else if (contractType === 'DIFFERS') {
+          won = digit !== pred;
+          mult = 1.09;
+        } else if (contractType === 'MATCHES') {
+          won = digit === pred;
+          mult = 9.0;
+        } else if (contractType === 'RISE') {
+          won = currentTick.direction === 'up';
+          mult = 1.95;
+        } else if (contractType === 'FALL') {
+          won = currentTick.direction === 'down';
+          mult = 1.95;
+        }
+
+        const profit = won ? Number((stake * (mult - 1)).toFixed(2)) : -stake;
+        const newBal = Number((userAccount.balance + profit).toFixed(2));
+
+        setUserAccount((prev) => ({ ...prev, balance: newBal }));
+        digitsBotExecutorRef.current?.setBalance(newBal);
+        chartsBotExecutorRef.current?.setBalance(newBal);
+
+        const tradeRecord: Trade = {
+          id: 'MANUAL-' + Date.now().toString(36),
+          timestamp: Date.now(),
+          marketId: selectedMarket.id,
+          strategyName: 'Manual One-Click (Virtual Demo)',
+          contractType,
+          prediction: `${contractType} ${predictionDigit !== undefined ? predictionDigit : ''}`.trim(),
+          stake,
+          entryPrice: currentTick.quote,
+          exitPrice: currentTick.quote,
+          exitDigit: digit,
+          profit,
+          status: won ? 'won' : 'lost',
+          balanceAfter: newBal,
+          botSource: 'manual',
+          isRealTrade: false,
+        };
+
+        setTrades((prev) => [tradeRecord, ...prev.slice(0, 199)]);
+        if (won) soundManager.playWin();
+        else soundManager.playLoss();
+      }
+    } catch (err: any) {
+      alert(`Trade error: ${err.message || 'Trade execution failed'}`);
+    } finally {
+      setIsPlacingManualTrade(false);
     }
   };
 
@@ -380,10 +571,13 @@ export default function App() {
     setUserAccount((prev) => ({
       ...prev,
       isLoggedIn: true,
+      token,
       email: 'deriv_user@auth.deriv.com',
     }));
     if (engineRef.current) {
-      engineRef.current.connectDeriv('1089', token);
+      let activeAppId = localStorage.getItem('tickedge_deriv_app_id') || '1089';
+      if (activeAppId === '61554') activeAppId = '1089';
+      engineRef.current.connectDeriv(activeAppId, token);
     }
   };
 
@@ -396,6 +590,10 @@ export default function App() {
       {/* Top Header */}
       <Header
         connectionStatus={connectionStatus}
+        isLiveDeriv={isLiveDeriv}
+        isRealExecutionEnabled={userAccount.isRealExecutionEnabled}
+        accountLoginId={userAccount.username}
+        marketSymbol={selectedMarket.symbol}
         soundEnabled={soundEnabled}
         onToggleSound={handleToggleSound}
         tickSpeedMs={tickSpeedMs}
@@ -445,6 +643,19 @@ export default function App() {
 
             {/* Last 30 digits Ribbon matching screenshot */}
             <LastDigitsRibbon ticks={ticks} />
+
+            {/* One-Click Real Tick Trading Widget */}
+            <QuickTradeBar
+              currentTick={currentTick}
+              market={selectedMarket}
+              isRealExecution={Boolean(userAccount.isRealExecutionEnabled)}
+              isLoggedIn={userAccount.isLoggedIn}
+              balance={userAccount.balance}
+              currency={userAccount.currency}
+              onQuickTrade={handleQuickTrade}
+              isPlacingTrade={isPlacingManualTrade}
+              onOpenDerivModal={() => setIsApiModalOpen(true)}
+            />
 
             {/* Digits Bot Strategy panel (INDEPENDENT) */}
             <BotStrategyPanel
@@ -515,9 +726,18 @@ export default function App() {
         isOpen={isApiModalOpen}
         onClose={() => setIsApiModalOpen(false)}
         connectionStatus={connectionStatus}
+        connectionInfo={connectionInfo}
+        isLiveDeriv={isLiveDeriv}
+        userAccount={userAccount}
+        onUpdateAccount={(acc) => setUserAccount((prev) => ({ ...prev, ...acc }))}
         onConnectWebSocket={(appId, token) => {
           if (engineRef.current) {
             engineRef.current.connectDeriv(appId, token);
+          }
+        }}
+        onReconnect={() => {
+          if (engineRef.current) {
+            engineRef.current.reconnect();
           }
         }}
       />

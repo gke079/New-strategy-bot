@@ -4,6 +4,10 @@ import { ConnectionStatus } from '../services/tickEngine';
 
 interface HeaderProps {
   connectionStatus: ConnectionStatus;
+  isLiveDeriv?: boolean;
+  isRealExecutionEnabled?: boolean;
+  accountLoginId?: string;
+  marketSymbol?: string;
   soundEnabled: boolean;
   onToggleSound: () => void;
   tickSpeedMs: number;
@@ -19,6 +23,10 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   connectionStatus,
+  isLiveDeriv = false,
+  isRealExecutionEnabled = false,
+  accountLoginId,
+  marketSymbol,
   soundEnabled,
   onToggleSound,
   tickSpeedMs,
@@ -33,8 +41,9 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const handleLogin = () => {
     const affiliateId = localStorage.getItem('tickedge_deriv_affiliate_id') || '';
-    const appId = '1089';
-    let authUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${appId}&brand=deriv`;
+    let appId = localStorage.getItem('tickedge_deriv_app_id') || '1089';
+    if (appId === '61554') appId = '1089';
+    let authUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${encodeURIComponent(appId)}&l=en`;
     if (affiliateId.trim()) {
       authUrl += `&affiliate_id=${encodeURIComponent(affiliateId.trim())}`;
     }
@@ -67,29 +76,37 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Connection status badge */}
           <div
             onClick={onOpenApiModal}
-            className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-mono font-medium cursor-pointer transition-colors ${
-              connectionStatus === 'connected'
-                ? 'bg-emerald-950/60 light-mode:bg-emerald-50 text-emerald-400 light-mode:text-emerald-700 border border-emerald-500/30'
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-medium cursor-pointer transition-colors shadow-sm ${
+              connectionStatus === 'connected' && isLiveDeriv
+                ? 'bg-emerald-950/80 light-mode:bg-emerald-50 text-emerald-400 light-mode:text-emerald-700 border border-emerald-500/40 shadow-emerald-950/50'
+                : connectionStatus === 'connected'
+                ? 'bg-cyan-950/60 light-mode:bg-cyan-50 text-cyan-400 light-mode:text-cyan-700 border border-cyan-500/30'
                 : connectionStatus === 'connecting'
                 ? 'bg-amber-950/60 light-mode:bg-amber-50 text-amber-400 light-mode:text-amber-700 border border-amber-500/30'
-                : 'bg-cyan-950/60 light-mode:bg-cyan-50 text-cyan-400 light-mode:text-cyan-700 border border-cyan-500/30'
+                : 'bg-rose-950/60 light-mode:bg-rose-50 text-rose-400 light-mode:text-rose-700 border border-rose-500/30'
             }`}
-            title="Click to configure Deriv API / Simulation"
+            title="Click to configure Deriv API & Real Trading"
           >
-            {connectionStatus === 'connected' ? (
+            {connectionStatus === 'connected' && isLiveDeriv ? (
               <>
-                <Wifi className="w-3 h-3 text-emerald-400 light-mode:text-emerald-600" />
-                <span>Live WS</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping mr-0.5"></span>
+                <Wifi className="w-3.5 h-3.5 text-emerald-400 light-mode:text-emerald-600" />
+                <span className="font-bold">Real Ticks {marketSymbol ? `(${marketSymbol})` : ''}</span>
+              </>
+            ) : connectionStatus === 'connected' ? (
+              <>
+                <Wifi className="w-3.5 h-3.5 text-cyan-400 light-mode:text-cyan-600" />
+                <span>Deriv WS</span>
               </>
             ) : connectionStatus === 'connecting' ? (
               <>
-                <RefreshCw className="w-3 h-3 animate-spin text-amber-400 light-mode:text-amber-600" />
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400 light-mode:text-amber-600" />
                 <span>Connecting...</span>
               </>
             ) : (
               <>
-                <Zap className="w-3 h-3 text-cyan-400 light-mode:text-cyan-600" />
-                <span>Sim Engine</span>
+                <Zap className="w-3.5 h-3.5 text-rose-400 light-mode:text-rose-600" />
+                <span>Offline / Retrying</span>
               </>
             )}
           </div>
@@ -97,6 +114,23 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right side controls */}
         <div className="flex items-center gap-2">
+          {/* Real vs Demo badge indicator */}
+          <button
+            onClick={onOpenApiModal}
+            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all border ${
+              isRealExecutionEnabled
+                ? 'bg-rose-950/60 border-rose-500/40 text-rose-300 hover:bg-rose-900/50'
+                : 'bg-[#111827] border-slate-800 text-slate-300 hover:border-slate-700'
+            }`}
+            title={isRealExecutionEnabled ? 'Real Money Deriv Orders ACTIVE' : 'Virtual Simulation on Real Ticks'}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isRealExecutionEnabled ? 'bg-rose-500 animate-pulse' : 'bg-emerald-400'
+              }`}
+            />
+            <span>{isRealExecutionEnabled ? 'LIVE REAL' : 'VIRTUAL DEMO'}</span>
+          </button>
           {/* Tick Speed Selector */}
           <div className="hidden md:flex items-center bg-[#111827] light-mode:bg-slate-100 border border-slate-800 light-mode:border-slate-200 rounded-lg p-0.5 text-xs font-mono">
             <span className="text-slate-400 light-mode:text-slate-600 px-1.5 flex items-center gap-1 text-[11px]">

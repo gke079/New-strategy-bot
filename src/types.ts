@@ -123,9 +123,11 @@ export interface Trade {
   exitPrice: number;
   exitDigit: number;
   profit: number;
-  status: 'won' | 'lost';
+  status: 'won' | 'lost' | 'open';
   balanceAfter: number;
-  botSource?: 'digits' | 'charts';
+  botSource?: 'digits' | 'charts' | 'manual';
+  derivContractId?: number;
+  isRealTrade?: boolean;
 }
 
 export interface BotMetrics {
@@ -146,4 +148,9 @@ export interface UserAccount {
   balance: number;
   currency: string;
   isDemo: boolean;
+  loginid?: string;
+  token?: string;
+  appId?: string;
+  isRealExecutionEnabled?: boolean;
+  tokenScopes?: string[];
 }

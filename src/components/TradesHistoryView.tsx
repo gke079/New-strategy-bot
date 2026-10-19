@@ -173,21 +173,35 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
                     {new Date(t.timestamp).toLocaleTimeString()}
                   </td>
                   <td className="py-2.5 px-3">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        t.botSource === 'charts'
-                          ? 'bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30'
-                          : 'bg-[#00e599]/15 text-[#00e599] border border-[#00e599]/30'
-                      }`}
-                    >
-                      {t.botSource === 'charts' ? 'Charts Bot' : 'Digits Bot'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                          t.botSource === 'charts'
+                            ? 'bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30'
+                            : t.botSource === 'manual'
+                            ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                            : 'bg-[#00e599]/15 text-[#00e599] border border-[#00e599]/30'
+                        }`}
+                      >
+                        {t.botSource === 'charts' ? 'Charts Bot' : t.botSource === 'manual' ? 'One-Click' : 'Digits Bot'}
+                      </span>
+                      {t.isRealTrade && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 uppercase">
+                          Deriv Real
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2.5 px-3">
                     <span className="font-bold text-white">{t.contractType}</span>
                     <span className="text-slate-400 ml-1.5 text-[11px] hidden sm:inline">
                       ({t.prediction})
                     </span>
+                    {t.derivContractId && (
+                      <span className="text-[10px] text-slate-500 block font-mono">
+                        #{t.derivContractId}
+                      </span>
+                    )}
                   </td>
                   <td className="py-2.5 px-3">
                     <span className="px-2 py-0.5 rounded bg-slate-800 text-[#00e599] font-bold">
