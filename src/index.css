@@ -7,11 +7,52 @@
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  body.light-mode {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
   }
 
   code, pre, .font-mono {
     font-family: 'JetBrains Mono', monospace;
   }
+}
+
+/* Light mode overrides for component background and text classes */
+body.light-mode .bg-\[\#080d16\],
+body.light-mode .bg-\[\#090d16\],
+body.light-mode .bg-\[\#111827\] {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e2e8f0 !important;
+}
+
+body.light-mode .text-white,
+body.light-mode .text-slate-100,
+body.light-mode .text-slate-200,
+body.light-mode .text-slate-300 {
+  color: #0f172a !important;
+}
+
+body.light-mode .text-slate-400,
+body.light-mode .text-slate-500 {
+  color: #64748b !important;
+}
+
+body.light-mode .border-slate-800,
+body.light-mode .border-slate-700,
+body.light-mode .border-slate-800\/80 {
+  border-color: #cbd5e1 !important;
+}
+
+body.light-mode input,
+body.light-mode select,
+body.light-mode textarea {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
 }
 
 /* Custom scrollbar */
@@ -22,9 +63,15 @@
 ::-webkit-scrollbar-track {
   background: #0d1527;
 }
+body.light-mode ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
 ::-webkit-scrollbar-thumb {
   background: #1e293b;
   border-radius: 3px;
+}
+body.light-mode ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;

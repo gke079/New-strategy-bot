@@ -442,14 +442,14 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       </div>
 
       {/* Primary Action Buttons: Save Strategy & Reset after trade */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
         <button
           onClick={handleSaveStrategy}
-          className="w-full py-3 rounded-xl bg-[#172233] hover:bg-[#1e2c42] border border-slate-700/80 text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 shadow-sm"
+          className="w-full py-2 px-3 rounded-xl bg-[#00e599]/15 hover:bg-[#00e599]/25 border border-[#00e599]/50 text-[#00e599] font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
         >
           {savedFeedback ? (
             <>
-              <BookmarkCheck className="w-4 h-4 text-[#00e599]" />
+              <BookmarkCheck className="w-3.5 h-3.5 text-[#00e599]" />
               <span className="text-[#00e599]">Strategy Saved!</span>
             </>
           ) : (
@@ -459,11 +459,11 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
 
         <button
           onClick={handleResetAfterTradeClick}
-          className="w-full py-3 rounded-xl bg-[#172233] hover:bg-[#1e2c42] border border-slate-700/80 text-slate-200 hover:text-white font-semibold text-sm transition-all flex items-center justify-center gap-2 shadow-sm group"
+          className="w-full py-1.5 px-2.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-slate-600 text-slate-300 font-semibold text-[11px] transition-all flex items-center justify-center gap-1 shadow-sm group"
           title="Reset stake and loss steps back to base stake"
         >
-          <RotateCcw className={`w-4 h-4 text-[#00e599] transition-transform ${resetTradeFeedback ? 'animate-spin' : 'group-hover:-rotate-90'}`} />
-          <span>{resetTradeFeedback ? 'Stake & Steps Reset!' : 'Reset after trade'}</span>
+          <RotateCcw className={`w-3 h-3 text-[#00e599] transition-transform ${resetTradeFeedback ? 'animate-spin' : 'group-hover:-rotate-90'}`} />
+          <span>{resetTradeFeedback ? 'Reset Done!' : 'Reset after trade'}</span>
         </button>
       </div>
 

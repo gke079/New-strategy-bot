@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Check, Wifi, Zap, ExternalLink, ShieldCheck, RefreshCw } from 'lucide-react';
+import { X, Check, Wifi, RefreshCw } from 'lucide-react';
 import { ConnectionStatus } from '../services/tickEngine';
 
 interface DerivApiModalProps {
@@ -7,7 +7,6 @@ interface DerivApiModalProps {
   onClose: () => void;
   connectionStatus: ConnectionStatus;
   onConnectWebSocket: (appId: string, token: string) => void;
-  onSwitchToSimulation: () => void;
 }
 
 export const DerivApiModal: React.FC<DerivApiModalProps> = ({
@@ -15,7 +14,6 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
   onClose,
   connectionStatus,
   onConnectWebSocket,
-  onSwitchToSimulation,
 }) => {
   const [appId, setAppId] = useState('1089');
   const [apiToken, setApiToken] = useState('');
@@ -33,8 +31,8 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
               <Wifi className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="font-bold text-white text-base">Deriv API & Data Feed</h3>
-              <p className="text-xs text-slate-400">Configure live stream or synthetic engine</p>
+              <h3 className="font-bold text-white text-base">Deriv Live API Stream</h3>
+              <p className="text-xs text-slate-400">Direct real-time tick streaming from Deriv WebSocket</p>
             </div>
           </div>
           <button
@@ -80,7 +78,7 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
                     ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
                     : connectionStatus === 'connecting'
                     ? 'bg-amber-950/40 border-amber-500/40 text-amber-300'
-                    : 'bg-cyan-950/40 border-cyan-500/40 text-cyan-300'
+                    : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -90,67 +88,20 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
                         ? 'bg-emerald-400'
                         : connectionStatus === 'connecting'
                         ? 'bg-amber-400 animate-pulse'
-                        : 'bg-cyan-400'
+                        : 'bg-rose-400'
                     }`}
                   />
                   <span>
                     Status:{' '}
                     <strong className="uppercase">
                       {connectionStatus === 'connected'
-                        ? 'Live Deriv WebSocket Active'
+                        ? 'Live Deriv WebSocket Connected'
                         : connectionStatus === 'connecting'
                         ? 'Connecting to Deriv WS...'
-                        : 'Synthetic Engine Mode'}
+                        : 'Disconnected / Reconnecting...'}
                     </strong>
                   </span>
                 </div>
-              </div>
-
-              {/* Mode switch */}
-              <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  onClick={onSwitchToSimulation}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    connectionStatus === 'simulated'
-                      ? 'bg-[#00e599]/10 border-[#00e599] text-white shadow-sm'
-                      : 'bg-[#090d16] border-slate-800 hover:border-slate-700 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-cyan-400" />
-                      Synthetic Sim
-                    </span>
-                    {connectionStatus === 'simulated' && (
-                      <Check className="w-3.5 h-3.5 text-[#00e599]" />
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    High-speed continuous generation, zero latency, customizable speeds.
-                  </p>
-                </button>
-
-                <button
-                  onClick={() => onConnectWebSocket(appId, apiToken)}
-                  className={`p-3 rounded-xl border text-left transition-all ${
-                    connectionStatus === 'connected'
-                      ? 'bg-[#00e599]/10 border-[#00e599] text-white shadow-sm'
-                      : 'bg-[#090d16] border-slate-800 hover:border-slate-700 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs flex items-center gap-1.5">
-                      <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                      Live Deriv WS
-                    </span>
-                    {connectionStatus === 'connected' && (
-                      <Check className="w-3.5 h-3.5 text-[#00e599]" />
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Connects directly to Deriv public websocket tick streaming endpoints.
-                  </p>
-                </button>
               </div>
 
               {/* Deriv Credentials */}
@@ -189,7 +140,7 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
                     className="w-full py-2 bg-[#00e599] hover:bg-[#00e599]/90 text-black font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Connect Live Feed</span>
+                    <span>Reconnect / Apply Live Feed</span>
                   </button>
                 </div>
               </div>

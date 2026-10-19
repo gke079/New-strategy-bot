@@ -25,9 +25,29 @@ export default function App() {
   const [ticksWindow, setTicksWindow] = useState<number>(1000);
   const [ticks, setTicks] = useState<Tick[]>([]);
   const [currentTick, setCurrentTick] = useState<Tick | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('simulated');
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   const [tickSpeedMs, setTickSpeedMs] = useState<number>(1000);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    try {
+      return (localStorage.getItem('tickedge_theme') as 'dark' | 'light') || 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('tickedge_theme', theme);
+    if (theme === 'light') {
+      document.body.classList.add('light-mode');
+    } else {
+      document.body.classList.remove('light-mode');
+    }
+  }, [theme]);
+
+  const handleToggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   // Tabs & Modals
   const [activeTab, setActiveTab] = useState<ActiveTab>('digits');
@@ -181,9 +201,6 @@ export default function App() {
       setConnectionStatus(status);
     });
 
-    // Seed initial ticks for immediate display
-    engine.seedInitialTicks(320);
-
     // Subscribe to tick stream
     const unsubTicks = engine.subscribe((newTick, allTicks) => {
       setCurrentTick(newTick);
@@ -206,8 +223,24 @@ export default function App() {
       }
     });
 
-    // Start simulation by default
-    engine.startSimulation();
+    // Connect to Deriv Live WebSocket by default
+    engine.connectDeriv('1089', '');
+
+    // Check for Deriv OAuth redirect return params
+    const params = new URLSearchParams(window.location.search);
+    const token1 = params.get('token1');
+    const acct1 = params.get('acct1');
+    const cur1 = params.get('cur1');
+    if (token1) {
+      setUserAccount((prev) => ({
+        ...prev,
+        isLoggedIn: true,
+        username: acct1 || 'DerivTrader',
+        currency: cur1 || 'USD',
+      }));
+      engine.connectDeriv('1089', token1);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
 
     return () => {
       unsubTicks();
@@ -343,6 +376,17 @@ export default function App() {
     }
   };
 
+  const handleAuthorizeDerivToken = (token: string) => {
+    setUserAccount((prev) => ({
+      ...prev,
+      isLoggedIn: true,
+      email: 'deriv_user@auth.deriv.com',
+    }));
+    if (engineRef.current) {
+      engineRef.current.connectDeriv('1089', token);
+    }
+  };
+
   // Compute stats on-the-fly from the ticks buffer
   const digitStats = useMemo(() => calculateDigitStats(ticks), [ticks]);
   const ratioStats = useMemo(() => calculateRatioStats(ticks), [ticks]);
@@ -361,6 +405,8 @@ export default function App() {
         userBalance={userAccount.balance}
         isDemo={userAccount.isDemo}
         onResetBuffer={handleResetBuffer}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {/* Main Content Area */}
@@ -474,11 +520,6 @@ export default function App() {
             engineRef.current.connectDeriv(appId, token);
           }
         }}
-        onSwitchToSimulation={() => {
-          if (engineRef.current) {
-            engineRef.current.startSimulation();
-          }
-        }}
       />
 
       <AuthModal
@@ -487,6 +528,7 @@ export default function App() {
         userAccount={userAccount}
         onUpdateAccount={(acc) => setUserAccount((prev) => ({ ...prev, ...acc }))}
         onResetBalance={handleResetUserBalance}
+        onAuthorizeDerivToken={handleAuthorizeDerivToken}
       />
     </div>
   );

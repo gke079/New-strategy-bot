@@ -6,38 +6,37 @@ interface LastDigitsRibbonProps {
 }
 
 export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => {
-  // User requested 8-10 maximum
   const [maxDigits, setMaxDigits] = useState<8 | 10>(10);
 
   const displayedTicks = ticks.slice(-maxDigits);
 
   const getDigitColor = (digit: number) => {
     if (digit % 2 === 0) {
-      return 'bg-cyan-950/40 text-cyan-300 border-cyan-500/30';
+      return 'bg-cyan-950/70 light-mode:bg-white text-cyan-300 light-mode:text-cyan-800 border-cyan-500/40 light-mode:border-slate-300 shadow-sm';
     }
-    return 'bg-rose-950/40 text-rose-300 border-rose-500/30';
+    return 'bg-rose-950/70 light-mode:bg-white text-rose-300 light-mode:text-rose-800 border-rose-500/40 light-mode:border-slate-300 shadow-sm';
   };
 
   return (
-    <div className="bg-[#111827] border border-slate-800 rounded-2xl p-4 flex flex-col gap-3 w-full shadow-sm">
+    <div className="bg-[#111827] light-mode:bg-white border border-slate-800 light-mode:border-slate-200 rounded-2xl p-4 flex flex-col gap-3 w-full shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-xs sm:text-sm font-semibold text-slate-200">
+          <span className="text-xs sm:text-sm font-semibold text-slate-200 light-mode:text-slate-900">
             Last {maxDigits} digits
           </span>
-          <span className="text-[11px] font-mono text-slate-400">
+          <span className="text-[11px] font-mono text-slate-400 light-mode:text-slate-500">
             ({displayedTicks.length}/{maxDigits})
           </span>
         </div>
 
         {/* Quick toggle between 8 and 10 digits */}
-        <div className="flex items-center bg-[#090d16] border border-slate-800 rounded-lg p-0.5 text-xs font-mono">
+        <div className="flex items-center bg-[#090d16] light-mode:bg-slate-100 border border-slate-800 light-mode:border-slate-200 rounded-lg p-0.5 text-xs font-mono">
           <button
             onClick={() => setMaxDigits(8)}
             className={`px-2 py-0.5 rounded transition-colors ${
               maxDigits === 8
                 ? 'bg-[#00e599] text-black font-bold'
-                : 'text-slate-400 hover:text-white'
+                : 'text-slate-400 light-mode:text-slate-600 hover:text-white light-mode:hover:text-slate-900'
             }`}
           >
             8 ticks
@@ -47,7 +46,7 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
             className={`px-2 py-0.5 rounded transition-colors ${
               maxDigits === 10
                 ? 'bg-[#00e599] text-black font-bold'
-                : 'text-slate-400 hover:text-white'
+                : 'text-slate-400 light-mode:text-slate-600 hover:text-white light-mode:hover:text-slate-900'
             }`}
           >
             10 ticks
@@ -81,7 +80,7 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
                 {/* Micro indicator: Even/Odd tag */}
                 <span
                   className={`text-[9px] uppercase tracking-wider font-semibold mt-0.5 ${
-                    isLatest ? 'text-black/80' : 'text-slate-400'
+                    isLatest ? 'text-black/80' : 'text-slate-400 light-mode:text-slate-600'
                   }`}
                 >
                   {digit % 2 === 0 ? 'Evn' : 'Odd'}

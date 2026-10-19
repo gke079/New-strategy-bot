@@ -124,7 +124,7 @@ export const SYNTHETIC_MARKETS: Market[] = [
     name: 'Volatility 100 (1s) Index',
     category: 'volatility-1s',
     decimals: 2,
-    basePrice: 1420.35,
+    basePrice: 1200.00,
     volatility: 0.0008,
     pipSize: 0.01,
   },
