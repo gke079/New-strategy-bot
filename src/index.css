@@ -89,3 +89,29 @@ body.light-mode ::-webkit-scrollbar-thumb {
 .glow-active {
   animation: pulseGlow 2s infinite ease-in-out;
 }
+
+/* Deriv DBot Blockly Workspace Polish */
+.blocklyToolboxDiv {
+  border-right: 1px solid rgba(148, 163, 184, 0.25);
+  padding: 6px 4px !important;
+}
+
+.blocklyTreeRow {
+  height: 32px !important;
+  line-height: 32px !important;
+  border-radius: 8px !important;
+  margin: 2px 4px !important;
+  padding-right: 10px !important;
+}
+
+.blocklyTreeLabel {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+}
+
+.blocklyWidgetDiv,
+.blocklyDropDownDiv,
+.blocklyTooltipDiv {
+  z-index: 60 !important;
+}

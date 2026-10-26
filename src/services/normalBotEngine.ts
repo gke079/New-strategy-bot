@@ -47,11 +47,18 @@ export class NormalBotExecutor {
   private onPauseChangeListeners: Set<(isPaused: boolean) => void> = new Set();
   private onContractProgressListeners: Set<(activeContract: ActiveContract | null) => void> = new Set();
 
-  constructor(config: NormalBotConfig, initialBalance: number = 10000) {
+  private botSource: Trade['botSource'] = 'normal';
+
+  constructor(
+    config: NormalBotConfig,
+    initialBalance: number = 10000,
+    botSource: Trade['botSource'] = 'normal'
+  ) {
     this.config = { ...config };
     this.currentStake = config.initialStake;
     this.balance = initialBalance;
     this.metrics.peakBalance = initialBalance;
+    this.botSource = botSource;
   }
 
   public updateConfig(newConfig: Partial<NormalBotConfig>) {
@@ -494,7 +501,7 @@ export class NormalBotExecutor {
       profit: Number(profit.toFixed(2)),
       status: won ? 'won' : 'lost',
       balanceAfter: this.balance,
-      botSource: 'normal',
+      botSource: this.botSource,
     };
 
     this.trades.unshift(tradeRecord);

@@ -130,7 +130,79 @@ export interface Trade {
   profit: number;
   status: 'won' | 'lost';
   balanceAfter: number;
-  botSource?: 'digits' | 'charts' | 'normal';
+  botSource?: 'digits' | 'charts' | 'normal' | 'xml' | 'signal';
+}
+
+export type XmlConditionOperator =
+  | 'always'
+  | 'last_digit_eq'
+  | 'last_digit_neq'
+  | 'last_digit_gt'
+  | 'last_digit_lt'
+  | 'last_digit_even'
+  | 'last_digit_odd'
+  | 'streak_over_n'
+  | 'streak_under_n'
+  | 'streak_even_n'
+  | 'streak_odd_n'
+  | 'rising_ticks_n'
+  | 'falling_ticks_n';
+
+export type XmlLossAction = 'martingale' | 'dalembert' | 'compound_win' | 'fixed';
+
+export type XmlBotStage =
+  | 'idle'
+  | 'initialization'
+  | 'before_purchase'
+  | 'during_purchase'
+  | 'after_purchase';
+
+export interface XmlCustomVariable {
+  id: string;
+  name: string;
+  initialValue: number;
+}
+
+export interface XmlJournalEntry {
+  id: string;
+  timestamp: number;
+  stage: XmlBotStage;
+  level: 'info' | 'buy' | 'win' | 'loss' | 'warn';
+  message: string;
+}
+
+export interface XmlBotConfig {
+  id: string;
+  name: string;
+  marketId: string;
+  contractCategory: 'digits' | 'callput';
+  contractType: TradeContractType;
+  prediction: number;
+  duration: number;
+  durationUnit: 't' | 's' | 'm';
+  initialStake: number;
+  // Stage 2: Purchase Conditions (before_purchase)
+  purchaseCondition: XmlConditionOperator;
+  conditionValue: number;
+  conditionStreakCount: number;
+  alternateContractOnLoss: boolean;
+  alternateContractType: TradeContractType;
+  // Stage 3: Sell Conditions (during_purchase)
+  enableSellAtProfit: boolean;
+  sellProfitThreshold: number;
+  // Stage 4: Restart Conditions (after_purchase)
+  lossAction: XmlLossAction;
+  martingaleMultiplier: number;
+  dalembertUnit: number;
+  maxMartingaleSteps: number;
+  resetOnMaxSteps: boolean;
+  takeProfit: number;
+  stopLoss: number;
+  tradeAgain: boolean;
+  cooldownTicks: number;
+  botSpeed?: 'normal' | 'fast';
+  customVariables: XmlCustomVariable[];
+  rawImportedXml?: string;
 }
 
 export interface NormalBotConfig {

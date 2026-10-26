@@ -14,7 +14,7 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
   onClearHistory,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
-  const [botFilter, setBotFilter] = useState<'all' | 'digits' | 'charts' | 'normal'>('all');
+  const [botFilter, setBotFilter] = useState<'all' | 'digits' | 'charts' | 'normal' | 'xml'>('all');
 
   const filteredTrades = trades.filter((t) => {
     if (botFilter !== 'all' && t.botSource && t.botSource !== botFilter) {
@@ -134,6 +134,17 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
               <span className={`w-2 h-2 rounded-full ${botFilter === 'charts' ? 'bg-slate-950' : 'bg-[#00FFFF]'}`} />
               <span>Strategy Bot ({trades.filter((t) => t.botSource === 'charts').length})</span>
             </button>
+            <button
+              onClick={() => setBotFilter('xml')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                botFilter === 'xml'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.4)]'
+                  : 'text-slate-400 hover:text-[#00FFFF]'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${botFilter === 'xml' ? 'bg-slate-950' : 'bg-[#00FFFF]'}`} />
+              <span>XML Bot ({trades.filter((t) => t.botSource === 'xml').length})</span>
+            </button>
           </div>
         </div>
 
@@ -186,12 +197,26 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
                   <td className="py-2.5 px-3">
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                        t.botSource === 'charts'
+                        t.botSource === 'signal'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : t.botSource === 'xml'
+                          ? 'bg-sky-50 text-sky-700 border border-sky-200'
+                          : t.botSource === 'normal'
+                          ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                          : t.botSource === 'charts'
                           ? 'bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30'
                           : 'bg-[#00e599]/15 text-[#00e599] border border-[#00e599]/30'
                       }`}
                     >
-                      {t.botSource === 'charts' ? 'Charts Bot' : 'Digits Bot'}
+                      {t.botSource === 'signal'
+                        ? 'Signals'
+                        : t.botSource === 'xml'
+                        ? 'XML Bot'
+                        : t.botSource === 'normal'
+                        ? 'Normal Bot'
+                        : t.botSource === 'charts'
+                        ? 'Strategy Bot'
+                        : 'Digits Bot'}
                     </span>
                   </td>
                   <td className="py-2.5 px-3">

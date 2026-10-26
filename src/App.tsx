@@ -1,10 +1,23 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Market, Tick, BotStrategyConfig, BotMetrics, Trade, UserAccount, NormalBotConfig } from './types';
+import {
+  Market,
+  Tick,
+  BotStrategyConfig,
+  BotMetrics,
+  Trade,
+  UserAccount,
+  NormalBotConfig,
+  XmlBotConfig,
+  XmlBotStage,
+  XmlJournalEntry,
+} from './types';
 import { DEFAULT_MARKET, SYNTHETIC_MARKETS } from './services/markets';
 import { TickStreamEngine, ConnectionStatus, DerivAccountInfo } from './services/tickEngine';
 import { calculateDigitStats, calculateRatioStats } from './services/statsEngine';
 import { BotExecutor } from './services/botEngine';
 import { NormalBotExecutor, ActiveContract } from './services/normalBotEngine';
+import { XmlBotExecutor } from './services/xmlBotEngine';
+import { DEFAULT_XML_BOT_CONFIG } from './services/derivXmlBridge';
 import { soundManager } from './services/soundEffects';
 
 import { Header } from './components/Header';
@@ -16,6 +29,8 @@ import { RatioCards } from './components/RatioCards';
 import { LastDigitsRibbon } from './components/LastDigitsRibbon';
 import { BotStrategyPanel } from './components/BotStrategyPanel';
 import { NormalBotPanel } from './components/NormalBotPanel';
+import { BotBuilderView } from './components/BotBuilderView';
+import { SignalsView, SignalExecutionRequest } from './components/SignalsView';
 import { ChartsView } from './components/ChartsView';
 import { TradesHistoryView } from './components/TradesHistoryView';
 import { BottomNavigation, ActiveTab } from './components/BottomNavigation';
@@ -207,6 +222,37 @@ export default function App() {
   const [normalBotStep, setNormalBotStep] = useState<number>(0);
   const [normalBotActiveContract, setNormalBotActiveContract] = useState<ActiveContract | null>(null);
 
+  // ==========================================
+  // 4. DERIV XML BOT BUILDER (BLOCKLY & STRUCTURED)
+  // ==========================================
+  const [xmlBotConfig, setXmlBotConfig] = useState<XmlBotConfig>(() => {
+    try {
+      const saved = localStorage.getItem('tickedge_xml_bot_config');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return DEFAULT_XML_BOT_CONFIG;
+  });
+  const [xmlBotRunning, setXmlBotRunning] = useState<boolean>(false);
+  const [xmlBotPaused, setXmlBotPaused] = useState<boolean>(false);
+  const [xmlBotStage, setXmlBotStage] = useState<XmlBotStage>('idle');
+  const [xmlBotStake, setXmlBotStake] = useState<number>(xmlBotConfig.initialStake);
+  const [xmlBotStep, setXmlBotStep] = useState<number>(0);
+  const [xmlBotJournal, setXmlBotJournal] = useState<XmlJournalEntry[]>([]);
+  const [xmlBotMetrics, setXmlBotMetrics] = useState<BotMetrics>({
+    totalTrades: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    totalProfit: 0,
+    currentStreak: { type: null, count: 0 },
+    maxDrawdown: 0,
+    peakBalance: 10000,
+  });
+
+  // Active Signal metadata running on Normal Bot
+  const [activeSignalMarketId, setActiveSignalMarketId] = useState<string | null>(null);
+  const [activeSignalLabel, setActiveSignalLabel] = useState<string | null>(null);
+
   // Unified trades history
   const [trades, setTrades] = useState<Trade[]>([]);
 
@@ -216,6 +262,7 @@ export default function App() {
   const digitsBotExecutorRef = useRef<BotExecutor | null>(null);
   const chartsBotExecutorRef = useRef<BotExecutor | null>(null);
   const normalBotExecutorRef = useRef<NormalBotExecutor | null>(null);
+  const xmlBotExecutorRef = useRef<XmlBotExecutor | null>(null);
 
   // Initialize Tick Engine & Independent Bot Executors once
   useEffect(() => {
@@ -234,6 +281,10 @@ export default function App() {
     const normalBot = new NormalBotExecutor(normalBotConfig, userAccount.balance);
     normalBotExecutorRef.current = normalBot;
 
+    // Independent Deriv XML Bot Executor
+    const xmlBot = new XmlBotExecutor(xmlBotConfig, userAccount.balance);
+    xmlBotExecutorRef.current = xmlBot;
+
     // Listen to Digits bot trades
     const unsubDigitsTrade = digitsBot.onTrade((trade, metrics, balance) => {
       setTrades((prev) => [trade, ...prev.slice(0, 199)]);
@@ -241,6 +292,7 @@ export default function App() {
       setUserAccount((prev) => ({ ...prev, balance }));
       chartsBotExecutorRef.current?.setBalance(balance);
       normalBotExecutorRef.current?.setBalance(balance);
+      xmlBotExecutorRef.current?.setBalance(balance);
     });
 
     const unsubDigitsStatus = digitsBot.onStatusChange((running) => {
@@ -254,6 +306,7 @@ export default function App() {
       setUserAccount((prev) => ({ ...prev, balance }));
       digitsBotExecutorRef.current?.setBalance(balance);
       normalBotExecutorRef.current?.setBalance(balance);
+      xmlBotExecutorRef.current?.setBalance(balance);
     });
 
     const unsubChartsStatus = chartsBot.onStatusChange((running) => {
@@ -272,13 +325,17 @@ export default function App() {
       setUserAccount((prev) => ({ ...prev, balance }));
       digitsBotExecutorRef.current?.setBalance(balance);
       chartsBotExecutorRef.current?.setBalance(balance);
+      xmlBotExecutorRef.current?.setBalance(balance);
       setNormalBotStake(normalBot.getCurrentStake());
       setNormalBotStep(normalBot.getCurrentStep());
     });
 
     const unsubNormalStatus = normalBot.onStatusChange((running) => {
       setNormalBotRunning(running);
-      if (!running) setNormalBotPaused(false);
+      if (!running) {
+        setNormalBotPaused(false);
+        setActiveSignalMarketId(null);
+      }
     });
 
     const unsubNormalPause = normalBot.onPauseChange((paused) => {
@@ -287,6 +344,30 @@ export default function App() {
 
     const unsubNormalProgress = normalBot.onContractProgress((activeContract) => {
       setNormalBotActiveContract(activeContract);
+    });
+
+    // Listen to XML Bot trades, status & journal
+    const unsubXmlTrade = xmlBot.onTrade((trade, metrics, balance) => {
+      setTrades((prev) => [trade, ...prev.slice(0, 199)]);
+      setXmlBotMetrics(metrics);
+      setUserAccount((prev) => ({ ...prev, balance }));
+      digitsBotExecutorRef.current?.setBalance(balance);
+      chartsBotExecutorRef.current?.setBalance(balance);
+      normalBotExecutorRef.current?.setBalance(balance);
+      setXmlBotStake(xmlBot.getCurrentStake());
+      setXmlBotStep(xmlBot.getCurrentStep());
+    });
+
+    const unsubXmlStatus = xmlBot.onStatusChange((running, paused, stage) => {
+      setXmlBotRunning(running);
+      setXmlBotPaused(paused);
+      setXmlBotStage(stage);
+      setXmlBotStake(xmlBot.getCurrentStake());
+      setXmlBotStep(xmlBot.getCurrentStep());
+    });
+
+    const unsubXmlJournal = xmlBot.onJournal((entries) => {
+      setXmlBotJournal(entries);
     });
 
     // Listen to connection status
@@ -309,6 +390,7 @@ export default function App() {
         digitsBotExecutorRef.current?.setBalance(acc.balance);
         chartsBotExecutorRef.current?.setBalance(acc.balance);
         normalBotExecutorRef.current?.setBalance(acc.balance);
+        xmlBotExecutorRef.current?.setBalance(acc.balance);
       }
     });
 
@@ -353,6 +435,11 @@ export default function App() {
         setNormalBotStake(normalBotExecutorRef.current.getCurrentStake());
         setNormalBotStep(normalBotExecutorRef.current.getCurrentStep());
       }
+
+      // Independent evaluation: Deriv XML Bot Builder
+      if (xmlBotExecutorRef.current && xmlBotExecutorRef.current.getStatus()) {
+        xmlBotExecutorRef.current.evaluateTick(newTick, allTicks, activeMarketId);
+      }
     });
 
     // Check for Deriv OAuth redirect return params
@@ -391,6 +478,9 @@ export default function App() {
       unsubNormalStatus();
       unsubNormalPause();
       unsubNormalProgress();
+      unsubXmlTrade();
+      unsubXmlStatus();
+      unsubXmlJournal();
       engine.destroy();
     };
   }, []);
@@ -428,6 +518,11 @@ export default function App() {
     setNormalBotConfig((prev) => {
       const next = { ...prev, marketId: market.id };
       normalBotExecutorRef.current?.updateConfig(next);
+      return next;
+    });
+    setXmlBotConfig((prev) => {
+      const next = { ...prev, marketId: market.id };
+      xmlBotExecutorRef.current?.updateConfig(next);
       return next;
     });
   };
@@ -644,6 +739,118 @@ export default function App() {
     handleResetChartsBotAfterTrade();
   };
 
+  // ==========================================
+  // DERIV XML BOT BUILDER HANDLERS
+  // ==========================================
+  const handleUpdateXmlBotConfig = (nextConfig: XmlBotConfig) => {
+    setXmlBotConfig(nextConfig);
+    try {
+      localStorage.setItem('tickedge_xml_bot_config', JSON.stringify(nextConfig));
+    } catch {}
+    xmlBotExecutorRef.current?.updateConfig(nextConfig);
+    if (!xmlBotRunning) {
+      setXmlBotStake(nextConfig.initialStake);
+    }
+    if (nextConfig.marketId && nextConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === nextConfig.marketId);
+      if (targetMarket) {
+        selectedMarketRef.current = targetMarket;
+        setSelectedMarket(targetMarket);
+        engineRef.current?.setMarket(targetMarket);
+      }
+    }
+  };
+
+  const handleStartXmlBot = () => {
+    if (xmlBotConfig.marketId && xmlBotConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === xmlBotConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
+    }
+    xmlBotExecutorRef.current?.start();
+  };
+
+  const handleStopXmlBot = () => {
+    xmlBotExecutorRef.current?.stop('Manual Stop');
+  };
+
+  const handlePauseXmlBot = () => {
+    xmlBotExecutorRef.current?.pause();
+  };
+
+  const handleResumeXmlBot = () => {
+    xmlBotExecutorRef.current?.resume();
+  };
+
+  const handleResetXmlBot = () => {
+    if (xmlBotExecutorRef.current) {
+      xmlBotExecutorRef.current.resetStats();
+      setXmlBotMetrics(xmlBotExecutorRef.current.getMetrics());
+      setXmlBotStake(xmlBotExecutorRef.current.getCurrentStake());
+      setXmlBotStep(0);
+      setTrades((prev) => prev.filter((t) => t.botSource !== 'xml'));
+    }
+  };
+
+  // ==========================================
+  // LIVE SIGNALS -> DIRECT NORMAL BOT LAUNCHER
+  // ==========================================
+  const handleRunSignalOnNormalBot = (req: SignalExecutionRequest) => {
+    if (!normalBotExecutorRef.current) return;
+
+    if (normalBotExecutorRef.current.getStatus()) {
+      normalBotExecutorRef.current.stop('Switched Signal');
+    }
+
+    // 1. Switch market feed to signal's market
+    selectedMarketRef.current = req.market;
+    setSelectedMarket(req.market);
+    engineRef.current?.setMarket(req.market);
+
+    // 2. Sync Normal Bot configuration with the Signal parameters
+    const resolvedPrediction =
+      req.contractType === 'EVEN' || req.contractType === 'ODD'
+        ? req.contractType
+        : req.prediction;
+
+    const updatedNormal: NormalBotConfig = {
+      ...normalBotConfig,
+      name: `Signal · ${req.signalLabel}`,
+      marketId: req.market.id,
+      contractType: req.contractType,
+      prediction: resolvedPrediction,
+      stake: req.stake,
+      initialStake: req.stake,
+      duration: 1,
+      durationUnit: 't',
+      martingale: req.martingale,
+      takeProfit: req.takeProfit,
+      stopLoss: req.stopLoss,
+      active: true,
+    };
+
+    setNormalBotConfig(updatedNormal);
+    try {
+      localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(updatedNormal));
+    } catch {}
+    normalBotExecutorRef.current.updateConfig(updatedNormal);
+    setNormalBotStake(req.stake);
+    setNormalBotStep(0);
+    setActiveSignalMarketId(req.market.id);
+    setActiveSignalLabel(req.signalLabel);
+    setBotsTabSubView('normal');
+    setFloatingBotSelection('normal');
+
+    // 3. Start Normal Bot and immediately open the first contract
+    normalBotExecutorRef.current.start();
+    const currentMarketTicks = engineRef.current?.getTicks() || [];
+    if (currentMarketTicks.length > 0) {
+      const latest = currentMarketTicks[currentMarketTicks.length - 1];
+      normalBotExecutorRef.current.evaluateTick(latest, currentMarketTicks, req.market.id);
+    }
+  };
+
   // Reset user balance (updates all executors)
   const handleResetUserBalance = (amount: number) => {
     setUserAccount((prev) => ({ ...prev, balance: amount }));
@@ -655,6 +862,9 @@ export default function App() {
     }
     if (normalBotExecutorRef.current) {
       normalBotExecutorRef.current.setBalance(amount);
+    }
+    if (xmlBotExecutorRef.current) {
+      xmlBotExecutorRef.current.setBalance(amount);
     }
   };
 
@@ -696,7 +906,13 @@ export default function App() {
       />
 
       {/* Main Content Area */}
-      <main className={`flex-1 max-w-4xl w-full mx-auto px-4 py-4 sm:py-6 flex flex-col gap-4 ${activeTab === 'digits' ? 'pb-40 sm:pb-44' : 'pb-16'}`}>
+      <main
+        className={`flex-1 ${
+          activeTab === 'builder' ? 'max-w-6xl' : 'max-w-4xl'
+        } w-full mx-auto px-4 py-4 sm:py-6 flex flex-col gap-4 ${
+          activeTab === 'digits' ? 'pb-40 sm:pb-44' : 'pb-20'
+        }`}
+      >
         {/* Prominent Deriv OAuth Login Banner if not logged in */}
         {!userAccount.isLoggedIn && (
           <div className="bg-gradient-to-r from-[#ff444f]/15 via-[#111827] to-[#090d16] border border-[#ff444f]/35 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-xl animate-in fade-in">
@@ -792,6 +1008,27 @@ export default function App() {
               theme={theme}
             />
           </>
+        )}
+
+        {/* SIGNALS TAB */}
+        {activeTab === 'signals' && (
+          <SignalsView
+            normalBotConfig={normalBotConfig}
+            onUpdateNormalBotConfig={handleUpdateNormalBotConfig}
+            onRunSignalOnNormalBot={handleRunSignalOnNormalBot}
+            onStopNormalBot={handleStopNormalBot}
+            onResetNormalBot={handleResetNormalBot}
+            onOpenNormalBotTab={() => {
+              setBotsTabSubView('normal');
+              setActiveTab('bots');
+            }}
+            normalBotRunning={normalBotRunning}
+            normalBotStake={normalBotStake}
+            normalBotMetrics={normalBotMetrics}
+            activeSignalMarketId={activeSignalMarketId}
+            activeSignalLabel={activeSignalLabel}
+            theme={theme}
+          />
         )}
 
         {/* BOTS TAB */}
@@ -910,6 +1147,30 @@ export default function App() {
           </>
         )}
 
+        {/* BOT BUILDER (DERIV DBOT XML / BLOCKLY + STRUCTURED) TAB */}
+        {activeTab === 'builder' && (
+          <BotBuilderView
+            config={xmlBotConfig}
+            onUpdateConfig={handleUpdateXmlBotConfig}
+            isRunning={xmlBotRunning}
+            isPaused={xmlBotPaused}
+            activeStage={xmlBotStage}
+            currentStake={xmlBotStake}
+            currentStep={xmlBotStep}
+            metrics={xmlBotMetrics}
+            trades={trades.filter((t) => t.botSource === 'xml')}
+            journal={xmlBotJournal}
+            currentTick={currentTick}
+            balance={userAccount.balance}
+            onStart={handleStartXmlBot}
+            onStop={handleStopXmlBot}
+            onPause={handlePauseXmlBot}
+            onResume={handleResumeXmlBot}
+            onReset={handleResetXmlBot}
+            theme={theme}
+          />
+        )}
+
         {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <TradesHistoryView
@@ -964,7 +1225,9 @@ export default function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         digitsBotRunning={digitsBotRunning}
+        signalBotRunning={normalBotRunning && activeSignalMarketId !== null}
         chartsBotRunning={chartsBotRunning || normalBotRunning}
+        xmlBotRunning={xmlBotRunning}
         theme={theme}
       />
 

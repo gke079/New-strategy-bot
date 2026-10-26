@@ -65,15 +65,10 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
               ? 'bg-[#0284c7] text-neutral-50 border-2 border-[#38bdf8] shadow-[0_2px_8px_rgba(2,132,199,0.4)]'
               : 'bg-[#e11d48] text-neutral-50 border-2 border-[#fb7185] shadow-[0_2px_8px_rgba(225,29,72,0.4)]';
 
-            // Latest tick gets purple ring with scale accent
-            const latestClass = isLatest
-              ? 'ring-3 ring-[#a855f7] ring-offset-1 ring-offset-[#111827] light-mode:ring-offset-white scale-110 z-10 shadow-[0_0_16px_rgba(168,85,247,0.9)]'
-              : 'hover:scale-105';
-
             return (
               <div
                 key={`${tick.epoch}-${index}`}
-                className={`relative w-7 h-7 sm:w-10 sm:h-10 md:w-11 md:h-11 rounded-full aspect-square shrink-0 flex flex-col items-center justify-center font-mono font-bold transition-all ${baseCircleClass} ${latestClass}`}
+                className={`relative w-7 h-7 sm:w-10 sm:h-10 md:w-11 md:h-11 rounded-full aspect-square shrink-0 flex flex-col items-center justify-center font-mono font-bold transition-all hover:scale-105 ${baseCircleClass}`}
                 title={`Digit: ${digit} • Price: ${tick.quoteFormatted} • Direction: ${tick.direction}${isLatest ? ' (Latest Live Tick)' : ''}`}
               >
                 {/* Digit Value */}
@@ -85,11 +80,6 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
                 <span className="text-[6px] sm:text-[8px] uppercase font-bold tracking-tight text-neutral-50/95 leading-none mt-0.5">
                   {isEven ? 'Even' : 'Odd'}
                 </span>
-
-                {/* Latest pulse badge */}
-                {isLatest && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#c084fc] ring-2 ring-[#a855f7] animate-ping" />
-                )}
               </div>
             );
           })}
