@@ -32,37 +32,38 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
     const base = 'transition-all duration-300 transform active:scale-95 cursor-pointer';
 
     if (!stat) {
-      return `${base} bg-white text-slate-950 border-2 border-black ring-2 ring-black shadow-md`;
-    }
-
-    if (isLight) {
-      switch (stat.rank) {
-        case 'most':
-          return `${base} bg-[#2563eb] text-white border-2 border-black ring-2 ring-black shadow-md`;
-        case 'second-most':
-          return `${base} bg-[#10b981] text-white border-2 border-black ring-2 ring-black shadow-md`;
-        case 'second-least':
-          return `${base} bg-[#f59e0b] text-white border-2 border-black ring-2 ring-black shadow-md`;
-        case 'least':
-          return `${base} bg-[#ef4444] text-white border-2 border-black ring-2 ring-black shadow-md`;
-        default:
-          return `${base} bg-white hover:bg-slate-50 border-2 border-black ring-2 ring-black text-slate-900 shadow-md`;
+      if (isSelected) {
+        return `${base} bg-white text-slate-950 border-2 border-purple-400 ring-4 ring-[#a855f7] ring-offset-2 ring-offset-[#090d16] shadow-[0_0_22px_rgba(168,85,247,0.9)] scale-110 z-20`;
       }
+      return `${base} bg-white text-slate-950 border-2 border-black ring-1 ring-black/40 shadow-md`;
     }
 
-    // Dark Mode: White neutral circles, rank-colored special circles, ALL with solid black rings
+    let bgAndText = '';
     switch (stat.rank) {
       case 'most':
-        return `${base} bg-[#2563eb] text-white border-2 border-black ring-2 ring-black shadow-md`;
+        bgAndText = 'bg-[#2563eb] text-white';
+        break;
       case 'second-most':
-        return `${base} bg-[#10b981] text-white border-2 border-black ring-2 ring-black shadow-md`;
+        bgAndText = 'bg-[#10b981] text-white';
+        break;
       case 'second-least':
-        return `${base} bg-[#f59e0b] text-white border-2 border-black ring-2 ring-black shadow-md`;
+        bgAndText = 'bg-[#f59e0b] text-white';
+        break;
       case 'least':
-        return `${base} bg-[#ef4444] text-white border-2 border-black ring-2 ring-black shadow-md`;
+        bgAndText = 'bg-[#ef4444] text-white';
+        break;
       default:
-        return `${base} bg-white hover:bg-slate-100 border-2 border-black ring-2 ring-black text-slate-950 shadow-md`;
+        bgAndText = isLight
+          ? 'bg-white hover:bg-slate-50 text-slate-900'
+          : 'bg-white hover:bg-slate-100 text-slate-950';
     }
+
+    if (isSelected) {
+      // Prominent PURPLE ring for the last digit ticker on digit frequency
+      return `${base} ${bgAndText} border-2 border-purple-400 ring-4 ring-[#a855f7] ring-offset-2 ring-offset-[#090d16] shadow-[0_0_24px_rgba(168,85,247,0.95)] scale-110 z-20`;
+    }
+
+    return `${base} ${bgAndText} border-2 border-black ring-1 ring-black/40 shadow-md`;
   };
 
   const renderCircle = (d: number, isHorizontal: boolean = false) => {
@@ -96,12 +97,8 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
           className={`flex-1 min-w-[32px] sm:min-w-[42px] max-w-[64px] aspect-square rounded-full flex flex-col items-center justify-center p-0.5 sm:p-1 relative select-none ${getRankClasses(
             stat,
             isSelected
-          )} ${
-            isSelected
-              ? 'ring-3 sm:ring-4 ring-[#00e599] ring-offset-2 ring-offset-black z-10 scale-105'
-              : ''
-          }`}
-          title={`Digit ${d}: ${stat.count} ticks (${stat.percentage.toFixed(1)}%) • Rank: ${stat.rank}`}
+          )}`}
+          title={`Digit ${d}: ${stat.count} ticks (${stat.percentage.toFixed(1)}%) • Rank: ${stat.rank}${isSelected ? ' (Last Digit)' : ''}`}
         >
           <span className={`text-sm sm:text-base md:text-lg font-mono leading-none ${digitTextColor}`}>
             {d}
@@ -124,12 +121,8 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
         className={`w-14 h-14 sm:w-16 sm:h-16 rounded-full flex flex-col items-center justify-center p-1 relative ${getRankClasses(
           stat,
           isSelected
-        )} ${
-          isSelected
-            ? 'ring-4 ring-[#00e599] ring-offset-2 ring-offset-black z-10 scale-105'
-            : ''
-        }`}
-        title={`Digit ${d}: ${stat.count} ticks (${stat.percentage.toFixed(1)}%) • Rank: ${stat.rank}`}
+        )}`}
+        title={`Digit ${d}: ${stat.count} ticks (${stat.percentage.toFixed(1)}%) • Rank: ${stat.rank}${isSelected ? ' (Last Digit)' : ''}`}
       >
         <span className={`text-xl sm:text-2xl font-mono leading-none ${digitTextColor}`}>{d}</span>
         <span
@@ -180,14 +173,6 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
               0 - 9
             </span>
           </div>
-          {activeDigit !== undefined && activeDigit !== null && (
-            <div className="flex items-center gap-1.5 font-mono text-xs">
-              <span className="text-slate-400">Current Digit:</span>
-              <span className="w-5 h-5 rounded-full bg-[#00e599] text-black font-black flex items-center justify-center text-xs shadow-sm">
-                {activeDigit}
-              </span>
-            </div>
-          )}
         </div>
 
         {/* Straight Horizontal Line of All 10 Circles */}

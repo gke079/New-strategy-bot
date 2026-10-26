@@ -160,11 +160,9 @@ export const MarketSelector: React.FC<MarketSelectorProps> = ({
                 <button
                   key={tab.id}
                   onClick={() => setSelectedCategory(tab.id)}
-                  className={`px-2.5 py-1 rounded-lg whitespace-nowrap font-medium transition-all ${
+                  className={`px-2.5 py-1 rounded-lg whitespace-nowrap font-medium transition-all cursor-pointer ${
                     selectedCategory === tab.id
-                      ? isLight
-                        ? 'bg-black text-white font-bold shadow-sm'
-                        : 'bg-white text-black font-bold shadow-sm'
+                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_8px_rgba(0,255,255,0.6)]'
                       : isLight
                       ? 'bg-neutral-100 text-neutral-600 hover:text-black border border-neutral-200'
                       : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'

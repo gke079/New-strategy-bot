@@ -10,15 +10,8 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
 
   const displayedTicks = ticks.slice(-maxDigits);
 
-  const getDigitColor = (digit: number) => {
-    if (digit % 2 === 0) {
-      return 'bg-cyan-950/70 light-mode:bg-white text-cyan-300 light-mode:text-cyan-800 border-cyan-500/40 light-mode:border-slate-300 shadow-sm';
-    }
-    return 'bg-rose-950/70 light-mode:bg-white text-rose-300 light-mode:text-rose-800 border-rose-500/40 light-mode:border-slate-300 shadow-sm';
-  };
-
   return (
-    <div className="bg-[#111827] light-mode:bg-white border border-slate-800 light-mode:border-slate-200 rounded-2xl p-4 flex flex-col gap-3 w-full shadow-sm">
+    <div className="bg-[#111827] light-mode:bg-white border border-slate-800 light-mode:border-slate-200 rounded-2xl p-4 flex flex-col gap-3 w-full shadow-sm transition-colors">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs sm:text-sm font-semibold text-slate-200 light-mode:text-slate-900">
@@ -29,23 +22,25 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
           </span>
         </div>
 
-        {/* Quick toggle between 8 and 10 digits */}
-        <div className="flex items-center bg-[#090d16] light-mode:bg-slate-100 border border-slate-800 light-mode:border-slate-200 rounded-lg p-0.5 text-xs font-mono">
+        {/* Quick toggle between 8 and 10 digits with aqua active tab button */}
+        <div className="flex items-center bg-[#090d16] light-mode:bg-slate-100 border border-slate-800 light-mode:border-slate-300 rounded-lg p-0.5 text-xs font-mono">
           <button
+            type="button"
             onClick={() => setMaxDigits(8)}
-            className={`px-2 py-0.5 rounded transition-colors ${
+            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
               maxDigits === 8
-                ? 'bg-[#00e599] text-black font-bold'
+                ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.6)]'
                 : 'text-slate-400 light-mode:text-slate-600 hover:text-white light-mode:hover:text-slate-900'
             }`}
           >
             8 ticks
           </button>
           <button
+            type="button"
             onClick={() => setMaxDigits(10)}
-            className={`px-2 py-0.5 rounded transition-colors ${
+            className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
               maxDigits === 10
-                ? 'bg-[#00e599] text-black font-bold'
+                ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.6)]'
                 : 'text-slate-400 light-mode:text-slate-600 hover:text-white light-mode:hover:text-slate-900'
             }`}
           >
@@ -59,36 +54,41 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
           Waiting for incoming ticks...
         </div>
       ) : (
-        <div className="grid grid-cols-5 sm:flex sm:items-center sm:justify-between gap-2 py-1">
+        <div className="flex items-center justify-between gap-1.5 sm:gap-2.5 w-full overflow-x-auto py-2 px-1">
           {displayedTicks.map((tick, index) => {
             const isLatest = index === displayedTicks.length - 1;
             const digit = tick.lastDigit;
+            const isEven = digit % 2 === 0;
+
+            // Clear, vibrant solid colors that don't fade in dark or light mode
+            const baseCircleClass = isEven
+              ? 'bg-[#0284c7] text-white border-2 border-[#38bdf8] shadow-[0_2px_8px_rgba(2,132,199,0.4)]'
+              : 'bg-[#e11d48] text-white border-2 border-[#fb7185] shadow-[0_2px_8px_rgba(225,29,72,0.4)]';
+
+            // Latest tick gets purple ring with scale accent
+            const latestClass = isLatest
+              ? 'ring-4 ring-[#a855f7] ring-offset-2 ring-offset-[#111827] light-mode:ring-offset-white scale-110 z-10 shadow-[0_0_16px_rgba(168,85,247,0.9)]'
+              : 'hover:scale-105';
 
             return (
               <div
                 key={`${tick.epoch}-${index}`}
-                className={`relative flex flex-col items-center justify-center h-12 sm:h-13 sm:flex-1 rounded-xl font-mono font-bold border transition-all ${
-                  isLatest
-                    ? 'bg-[#00e599] text-black border-[#00e599] shadow-lg shadow-[#00e599]/30 ring-2 ring-[#00e599]/50 scale-105 z-10'
-                    : getDigitColor(digit)
-                }`}
-                title={`Digit: ${digit} • Price: ${tick.quoteFormatted} • Direction: ${tick.direction}`}
+                className={`relative w-9 h-9 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full aspect-square shrink-0 flex flex-col items-center justify-center font-mono font-bold transition-all ${baseCircleClass} ${latestClass}`}
+                title={`Digit: ${digit} • Price: ${tick.quoteFormatted} • Direction: ${tick.direction}${isLatest ? ' (Latest Live Tick)' : ''}`}
               >
                 {/* Digit Value */}
-                <span className="text-lg sm:text-xl font-black leading-none">{digit}</span>
+                <span className="text-sm sm:text-base md:text-lg font-black leading-none drop-shadow-sm">
+                  {digit}
+                </span>
 
-                {/* Micro indicator: Even/Odd tag */}
-                <span
-                  className={`text-[9px] uppercase tracking-wider font-semibold mt-0.5 ${
-                    isLatest ? 'text-black/80' : 'text-slate-400 light-mode:text-slate-600'
-                  }`}
-                >
-                  {digit % 2 === 0 ? 'Evn' : 'Odd'}
+                {/* Even / Odd micro label */}
+                <span className="text-[7px] sm:text-[8px] uppercase font-bold tracking-tight text-white/95 leading-none mt-0.5">
+                  {isEven ? 'Even' : 'Odd'}
                 </span>
 
                 {/* Latest pulse badge */}
                 {isLatest && (
-                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-300 animate-ping" />
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-[#c084fc] ring-2 ring-[#a855f7] animate-ping" />
                 )}
               </div>
             );
@@ -98,3 +98,4 @@ export const LastDigitsRibbon: React.FC<LastDigitsRibbonProps> = ({ ticks }) => 
     </div>
   );
 };
+

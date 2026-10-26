@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Market, Tick, BotStrategyConfig, BotMetrics, Trade, UserAccount, NormalBotConfig } from './types';
 import { DEFAULT_MARKET, SYNTHETIC_MARKETS } from './services/markets';
-import { TickStreamEngine, ConnectionStatus } from './services/tickEngine';
+import { TickStreamEngine, ConnectionStatus, DerivAccountInfo } from './services/tickEngine';
 import { calculateDigitStats, calculateRatioStats } from './services/statsEngine';
 import { BotExecutor } from './services/botEngine';
 import { NormalBotExecutor, ActiveContract } from './services/normalBotEngine';
@@ -22,7 +22,7 @@ import { BottomNavigation, ActiveTab } from './components/BottomNavigation';
 import { DerivApiModal } from './components/DerivApiModal';
 import { AuthModal } from './components/AuthModal';
 import { FloatingBotController } from './components/FloatingBotController';
-import { Zap, Cpu } from 'lucide-react';
+import { Zap, Cpu, ShieldCheck } from 'lucide-react';
 
 export default function App() {
   const [selectedMarket, setSelectedMarket] = useState<Market>(DEFAULT_MARKET);
@@ -57,6 +57,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('digits');
   const [isApiModalOpen, setIsApiModalOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+
+  // Deriv Account Details & Auth Error
+  const [derivAccountInfo, setDerivAccountInfo] = useState<DerivAccountInfo | null>(null);
+  const [derivAuthError, setDerivAuthError] = useState<string | null>(null);
 
   // User Account & Virtual Demo Balance
   const [userAccount, setUserAccount] = useState<UserAccount>({
@@ -284,6 +288,29 @@ export default function App() {
       setConnectionStatus(status);
     });
 
+    // Listen to Deriv Account Info
+    const unsubAccount = engine.onAccountChange((acc) => {
+      setDerivAccountInfo(acc);
+      if (acc) {
+        setUserAccount((prev) => ({
+          ...prev,
+          isLoggedIn: true,
+          username: acc.loginid,
+          balance: acc.balance,
+          currency: acc.currency,
+          isDemo: acc.isVirtual,
+        }));
+        digitsBotExecutorRef.current?.setBalance(acc.balance);
+        chartsBotExecutorRef.current?.setBalance(acc.balance);
+        normalBotExecutorRef.current?.setBalance(acc.balance);
+      }
+    });
+
+    // Listen to Deriv Auth Error
+    const unsubAuthError = engine.onAuthError((err) => {
+      setDerivAuthError(err);
+    });
+
     // Subscribe to tick stream
     const unsubTicks = engine.subscribe((newTick, allTicks) => {
       setCurrentTick(newTick);
@@ -321,19 +348,26 @@ export default function App() {
     const acct1 = params.get('acct1');
     const cur1 = params.get('cur1');
     if (token1) {
+      const savedAppId = localStorage.getItem('tickedge_deriv_app_id') || '1089';
+      try {
+        localStorage.setItem('tickedge_deriv_token', token1);
+      } catch {}
       setUserAccount((prev) => ({
         ...prev,
         isLoggedIn: true,
         username: acct1 || 'DerivTrader',
         currency: cur1 || 'USD',
+        isDemo: Boolean(acct1 && acct1.startsWith('VR')),
       }));
-      engine.connectDeriv('1089', token1);
+      engine.connectDeriv(savedAppId, token1);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
     return () => {
       unsubTicks();
       unsubStatus();
+      unsubAccount();
+      unsubAuthError();
       unsubDigitsTrade();
       unsubDigitsStatus();
       unsubChartsTrade();
@@ -560,7 +594,8 @@ export default function App() {
       email: 'deriv_user@auth.deriv.com',
     }));
     if (engineRef.current) {
-      engineRef.current.connectDeriv('1089', token);
+      const currentAppId = engineRef.current.getAppId() || localStorage.getItem('tickedge_deriv_app_id') || '1089';
+      engineRef.current.connectDeriv(currentAppId, token);
     }
   };
 
@@ -585,10 +620,41 @@ export default function App() {
         onResetBuffer={handleResetBuffer}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        isLoggedIn={userAccount.isLoggedIn}
+        username={userAccount.username}
       />
 
       {/* Main Content Area */}
       <main className={`flex-1 max-w-4xl w-full mx-auto px-4 py-4 sm:py-6 flex flex-col gap-4 ${activeTab === 'digits' ? 'pb-40 sm:pb-44' : 'pb-16'}`}>
+        {/* Prominent Deriv OAuth Login Banner if not logged in */}
+        {!userAccount.isLoggedIn && (
+          <div className="bg-gradient-to-r from-[#ff444f]/15 via-[#111827] to-[#090d16] border border-[#ff444f]/35 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-xl animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#ff444f]/20 border border-[#ff444f]/40 flex items-center justify-center text-[#ff444f] shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="font-bold text-white text-sm">Official Deriv OAuth Authorization</h4>
+                  <span className="text-[10px] bg-[#ff444f]/20 text-[#ff444f] border border-[#ff444f]/40 font-bold px-1.5 py-0.5 rounded uppercase">
+                    OAuth 2.0
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300">
+                  Connect your Deriv account for live tick feeds, real & demo automated bot trading, and balance sync.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-white bg-gradient-to-r from-[#ff444f] via-[#e53945] to-[#cc2936] hover:from-[#ff555f] hover:to-[#ea3943] shadow-[0_0_20px_rgba(255,68,79,0.45)] hover:shadow-[0_0_30px_rgba(255,68,79,0.7)] transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 border border-[#ff444f]/50"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Login with Deriv</span>
+            </button>
+          </div>
+        )}
+
         {/* ANALYSIS (DIGITS) TAB */}
         {activeTab === 'digits' && (
           <>
@@ -674,7 +740,7 @@ export default function App() {
                   onClick={() => setBotsTabSubView('normal')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     botsTabSubView === 'normal'
-                      ? 'bg-pink-600 text-white shadow-sm shadow-pink-500/25 ring-1 ring-pink-400/40'
+                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-md shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
                       : 'text-neutral-600 hover:text-black hover:bg-neutral-100'
                   }`}
                 >
@@ -693,7 +759,7 @@ export default function App() {
                   onClick={() => setBotsTabSubView('strategy')}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                     botsTabSubView === 'strategy'
-                      ? 'bg-pink-600 text-white shadow-sm shadow-pink-500/25 ring-1 ring-pink-400/40'
+                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-md shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
                       : 'text-neutral-600 hover:text-black hover:bg-neutral-100'
                   }`}
                 >
@@ -826,10 +892,16 @@ export default function App() {
         isOpen={isApiModalOpen}
         onClose={() => setIsApiModalOpen(false)}
         connectionStatus={connectionStatus}
-        onConnectWebSocket={(appId, token) => {
+        accountInfo={derivAccountInfo}
+        authError={derivAuthError}
+        onConnectWebSocket={(appId, token, endpointUrl) => {
           if (engineRef.current) {
-            engineRef.current.connectDeriv(appId, token);
+            engineRef.current.connectDeriv(appId, token, endpointUrl);
           }
+        }}
+        onOpenAuthModal={() => {
+          setIsApiModalOpen(false);
+          setIsAuthModalOpen(true);
         }}
       />
 

@@ -63,7 +63,7 @@ export const TickCard: React.FC<TickCardProps> = ({ currentTick, market }) => {
               <span className="font-mono text-xl sm:text-2xl font-bold tracking-tight text-white">
                 {mainPart}
               </span>
-              <span className="font-mono text-2xl sm:text-3xl font-black text-[#00e599] underline decoration-[#00e599]/40 decoration-2 underline-offset-4 animate-in zoom-in-75 duration-100">
+              <span className="font-mono text-2xl sm:text-3xl font-black text-[#a855f7] underline decoration-[#a855f7]/40 decoration-2 underline-offset-4 animate-in zoom-in-75 duration-100">
                 {lastChar}
               </span>
             </div>
@@ -88,11 +88,11 @@ export const TickCard: React.FC<TickCardProps> = ({ currentTick, market }) => {
             </div>
           </div>
 
-          <div className="flex flex-col items-center justify-center px-3.5 py-1.5 rounded-xl bg-[#090d16] border border-slate-800">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+          <div className="flex flex-col items-center justify-center px-3.5 py-1.5 rounded-xl bg-[#090d16] border border-purple-500/40 ring-2 ring-[#a855f7]/40 shadow-[0_0_12px_rgba(168,85,247,0.3)]">
+            <span className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">
               Last Digit
             </span>
-            <span className="text-2xl font-black text-[#00e599] font-mono leading-none mt-0.5">
+            <span className="text-2xl font-black text-[#a855f7] font-mono leading-none mt-0.5">
               {currentTick.lastDigit}
             </span>
           </div>

@@ -38,7 +38,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
           onClick={() => onTabChange('digits')}
           className={`flex flex-col items-center gap-1 px-5 py-1.5 rounded-xl transition-all relative ${
             activeTab === 'digits'
-              ? 'text-white font-bold bg-pink-600 border border-pink-400/60 shadow-md shadow-pink-500/30 ring-1 ring-pink-400/40'
+              ? 'text-slate-950 font-black bg-[#00FFFF] border border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.5)] ring-2 ring-[#00FFFF]'
               : isLight
               ? 'text-neutral-500 hover:text-neutral-900 font-medium'
               : 'text-neutral-400 hover:text-white font-medium'
@@ -55,7 +55,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
           </div>
           <span className="text-xs tracking-tight">Analysis</span>
           {activeTab === 'digits' && (
-            <span className="w-5 h-0.5 rounded-full -mb-0.5 bg-white" />
+            <span className="w-5 h-0.5 rounded-full -mb-0.5 bg-slate-950" />
           )}
         </button>
 
@@ -64,7 +64,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
           onClick={() => onTabChange('bots')}
           className={`flex flex-col items-center gap-1 px-5 py-1.5 rounded-xl transition-all relative ${
             activeTab === 'bots'
-              ? 'text-white font-bold bg-pink-600 border border-pink-400/60 shadow-md shadow-pink-500/30 ring-1 ring-pink-400/40'
+              ? 'text-slate-950 font-black bg-[#00FFFF] border border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.5)] ring-2 ring-[#00FFFF]'
               : isLight
               ? 'text-neutral-500 hover:text-neutral-900 font-medium'
               : 'text-neutral-400 hover:text-white font-medium'
@@ -81,7 +81,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
           </div>
           <span className="text-xs tracking-tight">Bots</span>
           {activeTab === 'bots' && (
-            <span className="w-5 h-0.5 rounded-full -mb-0.5 bg-white" />
+            <span className="w-5 h-0.5 rounded-full -mb-0.5 bg-slate-950" />
           )}
         </button>
 
@@ -90,7 +90,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
           onClick={() => onTabChange('history')}
           className={`flex flex-col items-center gap-1 px-5 py-1.5 rounded-xl transition-all relative ${
             activeTab === 'history'
-              ? 'text-white font-bold bg-pink-600 border border-pink-400/60 shadow-md shadow-pink-500/30 ring-1 ring-pink-400/40'
+              ? 'text-slate-950 font-black bg-[#00FFFF] border border-[#00FFFF] shadow-[0_0_15px_rgba(0,255,255,0.5)] ring-2 ring-[#00FFFF]'
               : isLight
               ? 'text-neutral-500 hover:text-neutral-900 font-medium'
               : 'text-neutral-400 hover:text-white font-medium'
@@ -99,7 +99,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
           <History className="w-5 h-5" />
           <span className="text-xs tracking-tight">History</span>
           {activeTab === 'history' && (
-            <span className="w-5 h-0.5 rounded-full -mb-0.5 bg-white" />
+            <span className="w-5 h-0.5 rounded-full -mb-0.5 bg-slate-950" />
           )}
         </button>
       </div>

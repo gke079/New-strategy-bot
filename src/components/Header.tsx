@@ -1,5 +1,4 @@
-import React from 'react';
-import { Volume2, VolumeX, Gauge, Wifi, Zap, RefreshCw, User, Sun, Moon } from 'lucide-react';
+import { Volume2, VolumeX, Gauge, Wifi, Zap, RefreshCw, User, Sun, Moon, ShieldCheck } from 'lucide-react';
 import { ConnectionStatus } from '../services/tickEngine';
 
 interface HeaderProps {
@@ -15,6 +14,8 @@ interface HeaderProps {
   onResetBuffer: () => void;
   theme: 'dark' | 'light';
   onToggleTheme: () => void;
+  isLoggedIn?: boolean;
+  username?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -30,10 +31,12 @@ export const Header: React.FC<HeaderProps> = ({
   onResetBuffer,
   theme,
   onToggleTheme,
+  isLoggedIn,
+  username,
 }) => {
   const handleLogin = () => {
     const affiliateId = localStorage.getItem('tickedge_deriv_affiliate_id') || '';
-    const appId = '1089';
+    const appId = localStorage.getItem('tickedge_deriv_app_id') || '1089';
     let authUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${appId}&brand=deriv`;
     if (affiliateId.trim()) {
       authUrl += `&affiliate_id=${encodeURIComponent(affiliateId.trim())}`;
@@ -138,11 +141,9 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
             <button
               onClick={() => onChangeSpeed(1000)}
-              className={`px-2 py-1 rounded transition-colors ${
+              className={`px-2 py-1 rounded transition-colors cursor-pointer ${
                 tickSpeedMs === 1000
-                  ? theme === 'light'
-                    ? 'bg-white text-black font-bold shadow-sm'
-                    : 'bg-neutral-800 text-white font-bold shadow-sm'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_8px_rgba(0,255,255,0.6)]'
                   : theme === 'light'
                   ? 'text-neutral-600 hover:text-black'
                   : 'text-neutral-400 hover:text-white'
@@ -152,11 +153,9 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
             <button
               onClick={() => onChangeSpeed(500)}
-              className={`px-2 py-1 rounded transition-colors ${
+              className={`px-2 py-1 rounded transition-colors cursor-pointer ${
                 tickSpeedMs === 500
-                  ? theme === 'light'
-                    ? 'bg-white text-black font-bold shadow-sm'
-                    : 'bg-neutral-800 text-white font-bold shadow-sm'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_8px_rgba(0,255,255,0.6)]'
                   : theme === 'light'
                   ? 'text-neutral-600 hover:text-black'
                   : 'text-neutral-400 hover:text-white'
@@ -166,11 +165,9 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
             <button
               onClick={() => onChangeSpeed(200)}
-              className={`px-2 py-1 rounded transition-colors ${
+              className={`px-2 py-1 rounded transition-colors cursor-pointer ${
                 tickSpeedMs === 200
-                  ? theme === 'light'
-                    ? 'bg-white text-black font-bold shadow-sm'
-                    : 'bg-neutral-800 text-white font-bold shadow-sm'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_8px_rgba(0,255,255,0.6)]'
                   : theme === 'light'
                   ? 'text-neutral-600 hover:text-black'
                   : 'text-neutral-400 hover:text-white'
@@ -244,18 +241,26 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </button>
 
-          {/* Log in button -> Direct Deriv OAuth redirect */}
-          <button
-            onClick={handleLogin}
-            className={`px-3.5 py-1.5 rounded-lg font-semibold text-xs sm:text-sm transition-all border shadow-sm ${
-              theme === 'light'
-                ? 'bg-neutral-100 hover:bg-neutral-200 text-neutral-900 border-neutral-300'
-                : 'bg-neutral-900 hover:bg-neutral-800 text-white border-neutral-700'
-            }`}
-            title="Log in directly with Deriv Official OAuth"
-          >
-            Log in
-          </button>
+          {/* Prominent Login with Deriv button or Authorized badge */}
+          {isLoggedIn ? (
+            <button
+              onClick={onOpenAuthModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-400 font-mono text-xs font-bold hover:bg-emerald-500/25 transition-all cursor-pointer shadow-sm"
+              title="Deriv Account Connected - Click to view account"
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>{username || 'Connected'}</span>
+            </button>
+          ) : (
+            <button
+              onClick={onOpenAuthModal}
+              className="px-3.5 py-1.5 rounded-lg font-bold text-xs sm:text-sm transition-all duration-200 shadow-[0_0_15px_rgba(255,68,79,0.4)] hover:shadow-[0_0_25px_rgba(255,68,79,0.65)] flex items-center gap-1.5 bg-gradient-to-r from-[#ff444f] via-[#e53945] to-[#cc2936] hover:from-[#ff555f] hover:to-[#ea3943] text-white active:scale-95 cursor-pointer border border-[#ff444f]/50"
+              title="Log in directly with Deriv Official OAuth"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Login with Deriv</span>
+            </button>
+          )}
 
           {/* Sign up button -> Pure White */}
           <button

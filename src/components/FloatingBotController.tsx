@@ -149,7 +149,7 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                 onClick={() => onSelectBot('normal')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   isNormal
-                    ? 'bg-pink-600 text-white shadow-sm shadow-pink-500/25 ring-1 ring-pink-400/40'
+                    ? 'bg-[#00FFFF] text-slate-950 font-black shadow-sm shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
                     : 'text-neutral-600 hover:text-black'
                 }`}
               >
@@ -169,7 +169,7 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                 onClick={() => onSelectBot('strategy')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   !isNormal
-                    ? 'bg-pink-600 text-white shadow-sm shadow-pink-500/25 ring-1 ring-pink-400/40'
+                    ? 'bg-[#00FFFF] text-slate-950 font-black shadow-sm shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
                     : 'text-neutral-600 hover:text-black'
                 }`}
               >

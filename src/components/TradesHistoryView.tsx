@@ -93,9 +93,9 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
           <div className="flex items-center gap-1.5 bg-[#090d16] p-1 rounded-xl border border-slate-800 flex-wrap">
             <button
               onClick={() => setBotFilter('all')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 botFilter === 'all'
-                  ? 'bg-slate-700 text-white'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.4)]'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
@@ -103,35 +103,35 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
             </button>
             <button
               onClick={() => setBotFilter('normal')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                 botFilter === 'normal'
-                  ? 'bg-[#00e599] text-black font-bold'
-                  : 'text-slate-400 hover:text-[#00e599]'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.4)]'
+                  : 'text-slate-400 hover:text-[#00FFFF]'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-[#00e599]" />
+              <span className={`w-2 h-2 rounded-full ${botFilter === 'normal' ? 'bg-slate-950' : 'bg-[#00FFFF]'}`} />
               <span>Normal Bot ({trades.filter((t) => t.botSource === 'normal').length})</span>
             </button>
             <button
               onClick={() => setBotFilter('digits')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                 botFilter === 'digits'
-                  ? 'bg-emerald-400 text-black font-bold'
-                  : 'text-slate-400 hover:text-emerald-400'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.4)]'
+                  : 'text-slate-400 hover:text-[#00FFFF]'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span className={`w-2 h-2 rounded-full ${botFilter === 'digits' ? 'bg-slate-950' : 'bg-[#00FFFF]'}`} />
               <span>Digits Bot ({trades.filter((t) => t.botSource === 'digits').length})</span>
             </button>
             <button
               onClick={() => setBotFilter('charts')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                 botFilter === 'charts'
-                  ? 'bg-[#38bdf8] text-black font-bold'
-                  : 'text-slate-400 hover:text-[#38bdf8]'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.4)]'
+                  : 'text-slate-400 hover:text-[#00FFFF]'
               }`}
             >
-              <span className="w-2 h-2 rounded-full bg-[#38bdf8]" />
+              <span className={`w-2 h-2 rounded-full ${botFilter === 'charts' ? 'bg-slate-950' : 'bg-[#00FFFF]'}`} />
               <span>Strategy Bot ({trades.filter((t) => t.botSource === 'charts').length})</span>
             </button>
           </div>
@@ -146,9 +146,9 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
             <button
               key={f}
               onClick={() => setFilterType(f)}
-              className={`px-2.5 py-1 rounded-lg uppercase font-semibold text-[11px] whitespace-nowrap transition-colors ${
+              className={`px-2.5 py-1 rounded-lg uppercase font-semibold text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
                 filterType === f
-                  ? 'bg-[#00e599] text-black font-bold'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.5)]'
                   : 'bg-[#090d16] text-slate-400 hover:text-white border border-slate-800'
               }`}
             >
