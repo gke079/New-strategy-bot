@@ -1,4 +1,4 @@
-import { BotMetrics, BotStrategyConfig, DigitStat, RatioStats, Tick, Trade, TradeContractType } from '../types';
+import { BotMetrics, BotStrategyConfig, DigitStat, RatioStats, Tick, Trade } from '../types';
 import { soundManager } from './soundEffects';
 import confetti from 'canvas-confetti';
 
@@ -21,12 +21,11 @@ export class BotExecutor {
   };
   private balance: number = 10000;
   private isRunning: boolean = false;
-  private isRealExecution: boolean = false;
-  private engine: any = null;
-  private isTradePending: boolean = false;
+  private isPaused: boolean = false;
   public readonly botSource: 'digits' | 'charts';
   private onTradeListeners: Set<(trade: Trade, metrics: BotMetrics, balance: number) => void> = new Set();
   private onStatusChangeListeners: Set<(isRunning: boolean, reason?: string) => void> = new Set();
+  private onPauseChangeListeners: Set<(isPaused: boolean) => void> = new Set();
 
   constructor(config: BotStrategyConfig, initialBalance: number = 10000, botSource: 'digits' | 'charts' = 'digits') {
     this.config = { ...config };
@@ -34,11 +33,6 @@ export class BotExecutor {
     this.balance = initialBalance;
     this.metrics.peakBalance = initialBalance;
     this.botSource = botSource;
-  }
-
-  public setRealExecution(enabled: boolean, engine?: any) {
-    this.isRealExecution = enabled;
-    if (engine) this.engine = engine;
   }
 
   public updateConfig(newConfig: Partial<BotStrategyConfig>) {
@@ -70,18 +64,38 @@ export class BotExecutor {
     return this.isRunning;
   }
 
+  public getIsPaused(): boolean {
+    return this.isPaused;
+  }
+
   public start() {
     this.isRunning = true;
+    this.isPaused = false;
     this.currentStake = this.config.initialStake;
     this.currentStep = 0;
     this.consecutiveLosses = 0;
     this.consecutiveWins = 0;
     this.notifyStatus(true);
+    this.notifyPause(false);
   }
 
   public stop(reason?: string) {
     this.isRunning = false;
+    this.isPaused = false;
     this.notifyStatus(false, reason);
+    this.notifyPause(false);
+  }
+
+  public pause() {
+    if (!this.isRunning) return;
+    this.isPaused = true;
+    this.notifyPause(true);
+  }
+
+  public resume() {
+    if (!this.isRunning) return;
+    this.isPaused = false;
+    this.notifyPause(false);
   }
 
   public resetStats() {
@@ -127,8 +141,17 @@ export class BotExecutor {
     return () => this.onStatusChangeListeners.delete(listener);
   }
 
+  public onPauseChange(listener: (isPaused: boolean) => void): () => void {
+    this.onPauseChangeListeners.add(listener);
+    return () => this.onPauseChangeListeners.delete(listener);
+  }
+
   private notifyStatus(running: boolean, reason?: string) {
     this.onStatusChangeListeners.forEach((l) => l(running, reason));
+  }
+
+  private notifyPause(paused: boolean) {
+    this.onPauseChangeListeners.forEach((l) => l(paused));
   }
 
   // Calculate payout multiplier based on trade contract type and prediction digit
@@ -300,7 +323,7 @@ export class BotExecutor {
     ratioStats: RatioStats,
     marketId: string
   ) {
-    if (!this.isRunning) return;
+    if (!this.isRunning || this.isPaused) return;
 
     // Check Take Profit or Stop Loss
     if (this.metrics.totalProfit >= this.config.takeProfit) {
@@ -343,45 +366,7 @@ export class BotExecutor {
       return;
     }
 
-    if (this.isTradePending) return;
-
-    // Real Execution via Deriv Official WebSocket
-    if (this.isRealExecution && this.engine && typeof this.engine.buyContract === 'function') {
-      this.isTradePending = true;
-      this.engine
-        .buyContract({
-          symbol: marketId,
-          contractType: tradeType,
-          stake: stakeToUse,
-          predictionDigit,
-          duration: this.config.duration || 1,
-          durationUnit: this.config.durationUnit || 't',
-        })
-        .then((settlement: any) => {
-          this.isTradePending = false;
-          const isWon = settlement.status === 'won';
-          this.processTradeResult(
-            isWon,
-            settlement.profit,
-            stakeToUse,
-            settlement.exitPrice,
-            settlement.exitDigit,
-            marketId,
-            predictionText,
-            tradeType,
-            settlement.contractId,
-            true
-          );
-        })
-        .catch((err: any) => {
-          this.isTradePending = false;
-          console.warn('Real contract buy error:', err);
-          this.stop(`Deriv Order Error: ${err.message || 'Rejected'}`);
-        });
-      return;
-    }
-
-    // Simulated evaluation against incoming live real tick
+    // Evaluate trade outcome
     const digit = tick.lastDigit;
     const prevTick = priorTicks[priorTicks.length - 1];
     const prevQuote = prevTick ? prevTick.quote : tick.quote;
@@ -469,32 +454,6 @@ export class BotExecutor {
     }
 
     const profit = won ? stakeToUse * (payoutMultiplier - 1) : -stakeToUse;
-    this.processTradeResult(
-      won,
-      profit,
-      stakeToUse,
-      tick.quote,
-      digit,
-      marketId,
-      predictionText,
-      tradeType,
-      undefined,
-      false
-    );
-  }
-
-  private processTradeResult(
-    won: boolean,
-    profit: number,
-    stakeToUse: number,
-    exitPrice: number,
-    exitDigit: number,
-    marketId: string,
-    predictionText: string,
-    tradeType: TradeContractType,
-    contractId?: number,
-    isRealTrade?: boolean
-  ) {
     this.balance = Number((this.balance + profit).toFixed(2));
 
     if (won) {
@@ -545,22 +504,20 @@ export class BotExecutor {
     };
 
     const tradeRecord: Trade = {
-      id: contractId ? `DERIV-${contractId}` : 'TRD-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
-      timestamp: Date.now(),
+      id: 'TRD-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
+      timestamp: tick.epoch,
       marketId,
       strategyName: this.config.name,
       contractType: tradeType,
       prediction: predictionText,
       stake: stakeToUse,
-      entryPrice: exitPrice,
-      exitPrice: exitPrice,
-      exitDigit,
+      entryPrice: tick.quote,
+      exitPrice: tick.quote,
+      exitDigit: digit,
       profit: Number(profit.toFixed(2)),
       status: won ? 'won' : 'lost',
       balanceAfter: this.balance,
       botSource: this.botSource,
-      derivContractId: contractId,
-      isRealTrade: Boolean(isRealTrade),
     };
 
     this.trades.unshift(tradeRecord);

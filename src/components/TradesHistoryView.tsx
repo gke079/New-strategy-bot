@@ -14,7 +14,7 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
   onClearHistory,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
-  const [botFilter, setBotFilter] = useState<'all' | 'digits' | 'charts'>('all');
+  const [botFilter, setBotFilter] = useState<'all' | 'digits' | 'charts' | 'normal'>('all');
 
   const filteredTrades = trades.filter((t) => {
     if (botFilter !== 'all' && t.botSource && t.botSource !== botFilter) {
@@ -88,9 +88,9 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
       {/* Bot & Contract Filters */}
       <div className="flex flex-col gap-2">
         {/* Bot Selector */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-slate-400 font-semibold">Bot:</span>
-          <div className="flex items-center gap-1.5 bg-[#090d16] p-1 rounded-xl border border-slate-800">
+          <div className="flex items-center gap-1.5 bg-[#090d16] p-1 rounded-xl border border-slate-800 flex-wrap">
             <button
               onClick={() => setBotFilter('all')}
               className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
@@ -102,14 +102,25 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
               All Bots ({trades.length})
             </button>
             <button
-              onClick={() => setBotFilter('digits')}
+              onClick={() => setBotFilter('normal')}
               className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                botFilter === 'digits'
+                botFilter === 'normal'
                   ? 'bg-[#00e599] text-black font-bold'
                   : 'text-slate-400 hover:text-[#00e599]'
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-[#00e599]" />
+              <span>Normal Bot ({trades.filter((t) => t.botSource === 'normal').length})</span>
+            </button>
+            <button
+              onClick={() => setBotFilter('digits')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+                botFilter === 'digits'
+                  ? 'bg-emerald-400 text-black font-bold'
+                  : 'text-slate-400 hover:text-emerald-400'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
               <span>Digits Bot ({trades.filter((t) => t.botSource === 'digits').length})</span>
             </button>
             <button
@@ -121,7 +132,7 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-[#38bdf8]" />
-              <span>Charts Bot ({trades.filter((t) => t.botSource === 'charts').length})</span>
+              <span>Strategy Bot ({trades.filter((t) => t.botSource === 'charts').length})</span>
             </button>
           </div>
         </div>
@@ -173,35 +184,21 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
                     {new Date(t.timestamp).toLocaleTimeString()}
                   </td>
                   <td className="py-2.5 px-3">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                          t.botSource === 'charts'
-                            ? 'bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30'
-                            : t.botSource === 'manual'
-                            ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
-                            : 'bg-[#00e599]/15 text-[#00e599] border border-[#00e599]/30'
-                        }`}
-                      >
-                        {t.botSource === 'charts' ? 'Charts Bot' : t.botSource === 'manual' ? 'One-Click' : 'Digits Bot'}
-                      </span>
-                      {t.isRealTrade && (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 uppercase">
-                          Deriv Real
-                        </span>
-                      )}
-                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                        t.botSource === 'charts'
+                          ? 'bg-[#38bdf8]/15 text-[#38bdf8] border border-[#38bdf8]/30'
+                          : 'bg-[#00e599]/15 text-[#00e599] border border-[#00e599]/30'
+                      }`}
+                    >
+                      {t.botSource === 'charts' ? 'Charts Bot' : 'Digits Bot'}
+                    </span>
                   </td>
                   <td className="py-2.5 px-3">
                     <span className="font-bold text-white">{t.contractType}</span>
                     <span className="text-slate-400 ml-1.5 text-[11px] hidden sm:inline">
                       ({t.prediction})
                     </span>
-                    {t.derivContractId && (
-                      <span className="text-[10px] text-slate-500 block font-mono">
-                        #{t.derivContractId}
-                      </span>
-                    )}
                   </td>
                   <td className="py-2.5 px-3">
                     <span className="px-2 py-0.5 rounded bg-slate-800 text-[#00e599] font-bold">

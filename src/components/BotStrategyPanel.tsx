@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { Play, Square, ChevronDown, Check, RotateCcw, Zap, BookmarkCheck } from 'lucide-react';
+import { Play, Square, Pause, ChevronDown, Check, RotateCcw, Zap, BookmarkCheck } from 'lucide-react';
 import { BotMetrics, BotStrategyConfig, EntryConditionType, TradeContractType, Trade } from '../types';
 
 interface BotStrategyPanelProps {
   config: BotStrategyConfig;
   onUpdateConfig: (newConfig: Partial<BotStrategyConfig>) => void;
   isRunning: boolean;
+  isPaused?: boolean;
   onStart: () => void;
   onStop: () => void;
+  onPause?: () => void;
+  onResume?: () => void;
   metrics: BotMetrics;
   trades: Trade[];
   onResetStats: () => void;
@@ -15,14 +18,18 @@ interface BotStrategyPanelProps {
   balance: number;
   storageKey?: string;
   tag?: string;
+  theme?: 'dark' | 'light';
 }
 
 export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
   config,
   onUpdateConfig,
   isRunning,
+  isPaused = false,
   onStart,
   onStop,
+  onPause,
+  onResume,
   metrics,
   trades,
   onResetStats,
@@ -30,7 +37,9 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
   balance,
   storageKey,
   tag,
+  theme,
 }) => {
+  const isLight = theme === 'light';
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [resetTradeFeedback, setResetTradeFeedback] = useState(false);
 
@@ -119,48 +128,81 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
     setTimeout(() => setSavedFeedback(false), 2000);
   };
 
-  const handleResetAfterTradeClick = () => {
-    if (onResetAfterTrade) {
-      onResetAfterTrade();
-    }
-    onUpdateConfig({ stake: config.initialStake });
+  const handleResetHistoryClick = () => {
+    onResetStats(); // Resets only current trade history and metrics, preserves all bot settings
     setResetTradeFeedback(true);
     setTimeout(() => setResetTradeFeedback(false), 2000);
   };
 
   return (
-    <div className="bg-[#111827] border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 w-full shadow-lg">
-      {/* Title with Robot Icon matching screenshot */}
-      <div className="flex items-center justify-between">
+    <div className="bg-white border border-neutral-300 text-neutral-900 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 w-full shadow-lg">
+      {/* Header with Robot Icon (White box header) */}
+      <div
+        className="border border-neutral-200 rounded-xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm bg-neutral-50 text-neutral-900 transition-colors"
+      >
         <div className="flex items-center gap-2">
           <span className="text-xl">🤖</span>
-          <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+          <h2
+            className="text-base sm:text-lg font-bold tracking-tight flex items-center gap-2 text-neutral-950"
+          >
             <span>Digits bot strategy</span>
             {tag && (
-              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-800 text-[#00e599] border border-slate-700 font-semibold">
+              <span
+                className="text-[10px] uppercase font-mono px-2 py-0.5 rounded font-semibold border bg-neutral-200 text-neutral-800 border-neutral-300"
+              >
                 {tag}
               </span>
             )}
           </h2>
         </div>
 
-        {/* Start / Stop & Reset after trade */}
+        {/* Start / Stop & Reset trade history */}
         <div className="flex items-center gap-2">
           <button
-            onClick={handleResetAfterTradeClick}
-            className="px-3 py-1.5 rounded-xl bg-[#090d16] border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm"
-            title="Reset stake and loss steps back to base stake"
+            onClick={handleResetHistoryClick}
+            className="px-3 py-1.5 rounded-xl border border-neutral-300 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            title="Reset trade history and performance metrics (bot settings are preserved)"
           >
-            <RotateCcw className={`w-3.5 h-3.5 text-[#00e599] ${resetTradeFeedback ? 'animate-spin' : ''}`} />
-            <span>{resetTradeFeedback ? 'Reset!' : 'Reset after trade'}</span>
+            <RotateCcw
+              className={`w-3.5 h-3.5 text-neutral-700 ${
+                resetTradeFeedback ? 'animate-spin' : ''
+              }`}
+            />
+            <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
           </button>
 
+          {/* Pause / Resume Button: Pure Black Pause & Pure Green Resume */}
+          {isRunning && (onPause || onResume) && (
+            <button
+              onClick={isPaused ? onResume : onPause}
+              className={`px-3 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border active:scale-95 ${
+                isPaused
+                  ? 'bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00]'
+                  : 'bg-[#000000] hover:bg-neutral-900 text-white border border-neutral-800'
+              }`}
+              title={isPaused ? 'Resume Strategy Bot execution' : 'Pause Strategy Bot temporarily'}
+            >
+              {isPaused ? (
+                <>
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Resume</span>
+                </>
+              ) : (
+                <>
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>Pause</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Run / Stop Button: Pure Green Run & Pure Red Stop */}
           <button
             onClick={isRunning ? onStop : onStart}
-            className={`px-4 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md ${
+            className={`px-4 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md cursor-pointer border active:scale-95 ${
               isRunning
-                ? 'bg-rose-500 hover:bg-rose-600 text-white animate-pulse'
-                : 'bg-[#00e599] hover:bg-[#00e599]/90 text-black font-semibold'
+                ? 'bg-[#FF0000] hover:bg-[#e60000] text-white border border-[#cc0000]'
+                : 'bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00]'
             }`}
           >
             {isRunning ? (
@@ -178,21 +220,21 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </div>
       </div>
 
-      {/* Field: Name matching screenshot */}
+      {/* Field: Name */}
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-slate-300">Name</label>
+        <label className="text-xs font-semibold text-neutral-700">Name</label>
         <input
           type="text"
           value={config.name}
           onChange={(e) => onUpdateConfig({ name: e.target.value })}
           placeholder="e.g. Over 2 after 3 lows"
-          className="w-full px-3.5 py-2.5 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all font-medium"
+          className="w-full px-3.5 py-2.5 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all font-medium"
         />
       </div>
 
-      {/* Field: Entry condition matching screenshot */}
+      {/* Field: Entry condition */}
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-slate-300">Entry condition</label>
+        <label className="text-xs font-semibold text-neutral-700">Entry condition</label>
         <div className="relative">
           <select
             value={config.entryCondition}
@@ -204,20 +246,20 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
                 n: isRisingOrFalling ? Math.max(2, config.n) : config.n,
               });
             }}
-            className="w-full appearance-none px-3.5 py-2.5 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all pr-10 font-medium cursor-pointer"
+            className="w-full appearance-none px-3.5 py-2.5 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 font-medium cursor-pointer"
           >
             {entryConditions.map((cond) => (
-              <option key={cond.value} value={cond.value} className="bg-[#111827] text-white">
+              <option key={cond.value} value={cond.value} className="bg-white text-neutral-900">
                 {cond.label}
               </option>
             ))}
           </select>
-          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
         {/* Dynamic Contextual Helper Banner */}
         {config.entryCondition === 'n_rising_then_falling' && (
-          <div className="text-[11px] text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+          <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
             <span>📈</span>
             <span>
               Waits for <strong>at least {Math.max(2, config.n)} consecutive rising ticks</strong> followed by <strong>1 falling tick</strong> to execute.
@@ -226,7 +268,7 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         )}
 
         {config.entryCondition === 'n_falling_then_rising' && (
-          <div className="text-[11px] text-amber-400 bg-amber-950/40 border border-amber-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+          <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
             <span>📉</span>
             <span>
               Waits for <strong>at least {Math.max(2, config.n)} consecutive falling ticks</strong> followed by <strong>1 rising tick</strong> to execute.
@@ -235,10 +277,10 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         )}
       </div>
 
-      {/* Row: N, X (digit), P % matching screenshot */}
+      {/* Row: N, X (digit), P % */}
       <div className="grid grid-cols-3 gap-2.5">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">
+          <label className="text-xs font-semibold text-neutral-700">
             {config.entryCondition === 'n_rising_then_falling'
               ? 'N (rising ≥ 2)'
               : config.entryCondition === 'n_falling_then_rising'
@@ -255,61 +297,61 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               const val = parseInt(e.target.value, 10);
               onUpdateConfig({ n: isNaN(val) ? minVal : Math.max(minVal, val) });
             }}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">X (digit)</label>
+          <label className="text-xs font-semibold text-neutral-700">X (digit)</label>
           <input
             type="number"
             min="0"
             max="9"
             value={config.xDigit}
             onChange={(e) => onUpdateConfig({ xDigit: parseInt(e.target.value, 10) || 0 })}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">P %</label>
+          <label className="text-xs font-semibold text-neutral-700">P %</label>
           <input
             type="number"
             min="0"
             max="100"
             value={config.pPercent}
             onChange={(e) => onUpdateConfig({ pPercent: parseFloat(e.target.value) || 0 })}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
       </div>
 
-      {/* Row: Trade & Prediction digit matching screenshot */}
+      {/* Row: Trade & Prediction digit */}
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">Trade</label>
+          <label className="text-xs font-semibold text-neutral-700">Trade</label>
           <div className="relative">
             <select
               value={config.tradeType}
               onChange={(e) => onUpdateConfig({ tradeType: e.target.value as TradeContractType })}
-              className="w-full appearance-none px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all pr-10 font-medium cursor-pointer"
+              className="w-full appearance-none px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 font-medium cursor-pointer"
             >
               {tradeCategories.map((group) => (
-                <optgroup key={group.category} label={group.category} className="bg-[#090d16] text-[#00e599] font-semibold">
+                <optgroup key={group.category} label={group.category} className="bg-neutral-100 text-neutral-800 font-semibold">
                   {group.options.map((t) => (
-                    <option key={t.value} value={t.value} className="bg-[#111827] text-white font-normal">
+                    <option key={t.value} value={t.value} className="bg-white text-neutral-900 font-normal">
                       {t.label}
                     </option>
                   ))}
                 </optgroup>
               ))}
             </select>
-            <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">
+          <label className="text-xs font-semibold text-neutral-700">
             {['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(config.tradeType)
               ? 'Prediction digit'
               : 'Prediction / Target'}
@@ -321,10 +363,10 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               max="9"
               value={config.predictionDigit}
               onChange={(e) => onUpdateConfig({ predictionDigit: parseInt(e.target.value, 10) || 0 })}
-              className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+              className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
             />
           ) : (
-            <div className="w-full px-3.5 py-2 bg-[#172233]/60 border border-slate-800 rounded-xl text-slate-400 text-sm font-mono flex items-center justify-between select-none">
+            <div className="w-full px-3.5 py-2 bg-neutral-100 border border-neutral-300 rounded-xl text-neutral-700 text-sm font-mono flex items-center justify-between select-none">
               <span className="truncate">
                 {['RISE', 'FALL'].includes(config.tradeType)
                   ? 'Price Direction'
@@ -338,41 +380,42 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
                   ? 'Extremum Tick'
                   : 'Automatic'}
               </span>
-              <span className="text-[10px] text-slate-500 font-bold uppercase">Spot</span>
+              <span className="text-[10px] text-neutral-500 font-bold uppercase">Spot</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Row: Duration & Stake matching screenshot */}
+      {/* Row: Duration & Stake */}
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">Duration</label>
+          <label className="text-xs font-semibold text-neutral-700">Duration</label>
           <div className="flex gap-1.5">
             <input
               type="number"
               min="1"
-              max="10"
+              max={config.durationUnit === 'm' ? 120 : config.durationUnit === 's' ? 3600 : 10}
               value={config.duration}
-              onChange={(e) => onUpdateConfig({ duration: parseInt(e.target.value, 10) || 1 })}
-              className="flex-1 px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+              onChange={(e) => onUpdateConfig({ duration: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+              className="flex-1 px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
             />
-            <div className="relative w-16">
+            <div className="relative w-28">
               <select
-                value={config.durationUnit}
-                onChange={(e) => onUpdateConfig({ durationUnit: e.target.value as 't' | 's' })}
-                className="w-full appearance-none px-2.5 py-2 bg-[#172233] border border-slate-700/80 rounded-xl text-white text-sm font-mono text-center font-medium focus:outline-none focus:ring-1 focus:ring-[#00e599] cursor-pointer"
+                value={config.durationUnit || 't'}
+                onChange={(e) => onUpdateConfig({ durationUnit: e.target.value as 't' | 's' | 'm' })}
+                className="w-full appearance-none px-3 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-7 cursor-pointer"
               >
-                <option value="t">t</option>
-                <option value="s">s</option>
+                <option value="t" className="bg-white text-neutral-900">Ticks (t)</option>
+                <option value="s" className="bg-white text-neutral-900">Sec (s)</option>
+                <option value="m" className="bg-white text-neutral-900">Min (m)</option>
               </select>
-              <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-neutral-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">Stake</label>
+          <label className="text-xs font-semibold text-neutral-700">Stake</label>
           <input
             type="number"
             min="0.35"
@@ -382,61 +425,61 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               const val = parseFloat(e.target.value) || 0.5;
               onUpdateConfig({ stake: val, initialStake: val });
             }}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
       </div>
 
-      {/* Row: Martingale × & Max steps matching screenshot */}
+      {/* Row: Martingale × & Max steps */}
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">Martingale ×</label>
+          <label className="text-xs font-semibold text-neutral-700">Martingale ×</label>
           <input
             type="number"
             min="1"
             step="0.1"
             value={config.martingale}
             onChange={(e) => onUpdateConfig({ martingale: parseFloat(e.target.value) || 1 })}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">Max steps</label>
+          <label className="text-xs font-semibold text-neutral-700">Max steps</label>
           <input
             type="number"
             min="1"
             max="15"
             value={config.maxSteps}
             onChange={(e) => onUpdateConfig({ maxSteps: parseInt(e.target.value, 10) || 1 })}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
       </div>
 
-      {/* Row: Take profit & Stop loss matching screenshot */}
+      {/* Row: Take profit & Stop loss */}
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">Take profit</label>
+          <label className="text-xs font-semibold text-neutral-700">Take profit</label>
           <input
             type="number"
             min="1"
             step="5"
             value={config.takeProfit}
             onChange={(e) => onUpdateConfig({ takeProfit: parseFloat(e.target.value) || 10 })}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-slate-300">Stop loss</label>
+          <label className="text-xs font-semibold text-neutral-700">Stop loss</label>
           <input
             type="number"
             min="1"
             step="5"
             value={config.stopLoss}
             onChange={(e) => onUpdateConfig({ stopLoss: parseFloat(e.target.value) || 20 })}
-            className="w-full px-3.5 py-2 bg-[#172233] hover:bg-[#1a273b] focus:bg-[#1a273b] border border-slate-700/80 rounded-xl text-white text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-[#00e599]/40 transition-all"
+            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
       </div>
@@ -445,12 +488,12 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
         <button
           onClick={handleSaveStrategy}
-          className="w-full py-2 px-3 rounded-xl bg-[#00e599]/15 hover:bg-[#00e599]/25 border border-[#00e599]/50 text-[#00e599] font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+          className="w-full py-2 px-3 rounded-xl bg-neutral-900 hover:bg-black text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
         >
           {savedFeedback ? (
             <>
-              <BookmarkCheck className="w-3.5 h-3.5 text-[#00e599]" />
-              <span className="text-[#00e599]">Strategy Saved!</span>
+              <BookmarkCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Strategy Saved!</span>
             </>
           ) : (
             <span>Save strategy</span>
@@ -458,105 +501,152 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </button>
 
         <button
-          onClick={handleResetAfterTradeClick}
-          className="w-full py-1.5 px-2.5 rounded-lg bg-[#1e293b] hover:bg-[#334155] border border-slate-600 text-slate-300 font-semibold text-[11px] transition-all flex items-center justify-center gap-1 shadow-sm group"
-          title="Reset stake and loss steps back to base stake"
+          onClick={handleResetHistoryClick}
+          className="w-full py-2 px-3 rounded-xl bg-neutral-100 hover:bg-neutral-200 border border-neutral-300 text-neutral-800 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+          title="Reset trade history and performance metrics (bot settings are preserved)"
         >
-          <RotateCcw className={`w-3 h-3 text-[#00e599] transition-transform ${resetTradeFeedback ? 'animate-spin' : 'group-hover:-rotate-90'}`} />
-          <span>{resetTradeFeedback ? 'Reset Done!' : 'Reset after trade'}</span>
+          <RotateCcw className={`w-3.5 h-3.5 text-neutral-700 transition-transform ${resetTradeFeedback ? 'animate-spin' : ''}`} />
+          <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
         </button>
       </div>
 
-      {/* Real-time bot metrics & live executions */}
-      <div className="bg-[#090d16] border border-slate-800/80 rounded-xl p-3 flex flex-col gap-2.5 mt-1">
-        <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
+      {/* Real-time bot metrics & live executions (Bot Footer in White Box) */}
+      <div
+        className="border border-neutral-200 rounded-xl p-3 flex flex-col gap-2.5 mt-1 bg-neutral-50 text-neutral-900 shadow-sm"
+      >
+        <div
+          className="flex items-center justify-between text-xs font-semibold text-neutral-700"
+        >
           <div className="flex items-center gap-1.5">
             <span
               className={`w-2 h-2 rounded-full ${
-                isRunning ? 'bg-[#00e599] animate-pulse' : 'bg-slate-500'
+                isRunning
+                  ? isPaused
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-600 animate-pulse'
+                  : 'bg-neutral-400'
               }`}
             />
-            <span>Status: {isRunning ? 'Active & Scanning Ticks' : 'Idle'}</span>
+            <span>
+              Status: {isRunning ? (isPaused ? 'Paused' : 'Active & Scanning Ticks') : 'Idle'}
+            </span>
           </div>
-          <span className="font-mono text-slate-400">
+          <span
+            className="font-mono text-neutral-950 font-bold"
+          >
             Balance: ${balance.toFixed(2)}
           </span>
         </div>
 
         <div className="grid grid-cols-4 gap-2 text-center text-xs">
-          <div className="p-2 rounded-lg bg-[#111827]">
-            <div className="text-[10px] text-slate-400 uppercase font-semibold">Net P/L</div>
+          <div
+            className="p-2 rounded-lg border border-neutral-200 bg-white"
+          >
+            <div
+              className="text-[10px] uppercase font-semibold text-neutral-500"
+            >
+              Net P/L
+            </div>
             <div
               className={`font-mono font-bold ${
                 metrics.totalProfit > 0
-                  ? 'text-emerald-400'
+                  ? 'text-emerald-600'
                   : metrics.totalProfit < 0
-                  ? 'text-rose-400'
-                  : 'text-slate-300'
+                  ? 'text-rose-600'
+                  : 'text-neutral-800'
               }`}
             >
               {metrics.totalProfit > 0 ? '+' : ''}${metrics.totalProfit.toFixed(2)}
             </div>
           </div>
 
-          <div className="p-2 rounded-lg bg-[#111827]">
-            <div className="text-[10px] text-slate-400 uppercase font-semibold">Win Rate</div>
-            <div className="font-mono font-bold text-[#00e599]">
-              {metrics.winRate}%
+          <div
+            className="p-2 rounded-lg border border-neutral-200 bg-white"
+          >
+            <div
+              className="text-[10px] uppercase font-semibold text-neutral-500"
+            >
+              Win Rate
+            </div>
+            <div className="font-mono font-bold text-emerald-600">{metrics.winRate}%</div>
+          </div>
+
+          <div
+            className="p-2 rounded-lg border border-neutral-200 bg-white"
+          >
+            <div
+              className="text-[10px] uppercase font-semibold text-neutral-500"
+            >
+              W / L
+            </div>
+            <div
+              className="font-mono font-semibold text-neutral-800"
+            >
+              <span className="text-emerald-600">{metrics.wins}</span>
+              <span className="text-neutral-400">/</span>
+              <span className="text-rose-600">{metrics.losses}</span>
             </div>
           </div>
 
-          <div className="p-2 rounded-lg bg-[#111827]">
-            <div className="text-[10px] text-slate-400 uppercase font-semibold">W / L</div>
-            <div className="font-mono font-semibold text-slate-200">
-              <span className="text-emerald-400">{metrics.wins}</span>
-              <span className="text-slate-500">/</span>
-              <span className="text-rose-400">{metrics.losses}</span>
+          <div
+            className="p-2 rounded-lg border border-neutral-200 bg-white"
+          >
+            <div
+              className="text-[10px] uppercase font-semibold text-neutral-500"
+            >
+              Trades
             </div>
-          </div>
-
-          <div className="p-2 rounded-lg bg-[#111827]">
-            <div className="text-[10px] text-slate-400 uppercase font-semibold">Trades</div>
-            <div className="font-mono font-bold text-white">
+            <div
+              className="font-mono font-bold text-neutral-950"
+            >
               {metrics.totalTrades}
             </div>
           </div>
         </div>
 
-        {/* Recent Executions */}
+        {/* Recent Executions in Footer */}
         {trades.length > 0 && (
-          <div className="border-t border-slate-800/80 pt-2 space-y-1">
-            <div className="flex items-center justify-between text-[10px] uppercase font-semibold text-slate-400">
+          <div
+            className="border-t border-neutral-200 pt-2 space-y-1"
+          >
+            <div
+              className="flex items-center justify-between text-[10px] uppercase font-semibold text-neutral-500"
+            >
               <span>Recent Trade Executions</span>
               <button
-                onClick={handleResetAfterTradeClick}
-                className="text-[#00e599] hover:underline flex items-center gap-1 font-mono normal-case"
-                title="Reset stake and step counter"
+                onClick={handleResetHistoryClick}
+                className="flex items-center gap-1 font-mono normal-case cursor-pointer text-neutral-600 hover:text-black transition-colors"
+                title="Reset trade history and performance metrics"
               >
                 <RotateCcw className="w-2.5 h-2.5" />
-                <span>Reset after trade</span>
+                <span>Reset history</span>
               </button>
             </div>
             {trades.slice(0, 3).map((trade) => (
               <div
                 key={trade.id}
-                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#111827] text-xs font-mono border border-slate-800/60"
+                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-mono border bg-white text-neutral-900 border-neutral-200"
               >
                 <div className="flex items-center gap-2">
                   <span
                     className={`w-2 h-2 rounded-full ${
-                      trade.status === 'won' ? 'bg-emerald-400' : 'bg-rose-400'
+                      trade.status === 'won' ? 'bg-emerald-500' : 'bg-rose-500'
                     }`}
                   />
-                  <span className="font-bold text-white">{trade.prediction}</span>
+                  <span className="font-bold text-neutral-950">
+                    {trade.prediction}
+                  </span>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="text-slate-400">
-                    Digit: <strong className="text-white">{trade.exitDigit}</strong>
+                  <span className="text-neutral-600">
+                    Digit:{' '}
+                    <strong className="text-neutral-950">
+                      {trade.exitDigit}
+                    </strong>
                   </span>
                   <span
                     className={`font-bold ${
-                      trade.status === 'won' ? 'text-emerald-400' : 'text-rose-400'
+                      trade.status === 'won' ? 'text-emerald-600' : 'text-rose-600'
                     }`}
                   >
                     {trade.profit > 0 ? '+' : ''}${trade.profit.toFixed(2)}

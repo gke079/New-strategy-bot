@@ -22,11 +22,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [activeTab, setActiveTab] = useState<'profile' | 'deriv_auth' | 'affiliate'>('deriv_auth');
   const [username, setUsername] = useState(userAccount.username);
   const [apiToken, setApiToken] = useState('');
-  const [appId, setAppId] = useState(() => {
-    const saved = localStorage.getItem('tickedge_deriv_app_id');
-    if (!saved || saved === '61554' || saved.trim() === '') return '1089';
-    return saved.trim();
-  });
   const [affiliateId, setAffiliateId] = useState(() => {
     return localStorage.getItem('tickedge_deriv_affiliate_id') || '';
   });
@@ -37,10 +32,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   useEffect(() => {
     localStorage.setItem('tickedge_deriv_affiliate_id', affiliateId);
   }, [affiliateId]);
-
-  useEffect(() => {
-    localStorage.setItem('tickedge_deriv_app_id', appId);
-  }, [appId]);
 
   if (!isOpen) return null;
 
@@ -57,8 +48,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const handleDerivOAuthRedirect = () => {
-    const cleanAppId = appId.trim() || '1089';
-    let authUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${encodeURIComponent(cleanAppId)}&l=en`;
+    const appId = '1089';
+    let authUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${appId}&brand=deriv`;
     if (affiliateId.trim()) {
       authUrl += `&affiliate_id=${encodeURIComponent(affiliateId.trim())}`;
     }
@@ -122,7 +113,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={() => setActiveTab('deriv_auth')}
             className={`py-2.5 border-b-2 mr-3 transition-colors flex items-center gap-1.5 ${
               activeTab === 'deriv_auth'
-                ? 'border-[#00e599] text-[#00e599]'
+                ? 'border-pink-500 text-pink-400 font-bold'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -133,7 +124,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={() => setActiveTab('affiliate')}
             className={`py-2.5 border-b-2 mr-3 transition-colors flex items-center gap-1.5 ${
               activeTab === 'affiliate'
-                ? 'border-[#00e599] text-[#00e599]'
+                ? 'border-pink-500 text-pink-400 font-bold'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -144,7 +135,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={() => setActiveTab('profile')}
             className={`py-2.5 border-b-2 transition-colors flex items-center gap-1.5 ${
               activeTab === 'profile'
-                ? 'border-[#00e599] text-[#00e599]'
+                ? 'border-pink-500 text-pink-400 font-bold'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
@@ -205,58 +196,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-3 pt-1 border-t border-slate-800">
-                    {/* Modern App ID selector */}
-                    <div className="bg-[#111827] border border-slate-800 rounded-xl p-3 space-y-2">
-                      <div className="flex justify-between items-center text-xs">
-                        <label className="font-semibold text-slate-300">Deriv App ID</label>
-                        <span className="text-[10px] text-[#00e599] font-mono">Modern App ID</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-1.5 text-xs font-mono">
-                        <button
-                          type="button"
-                          onClick={() => setAppId('61554')}
-                          className={`py-1 px-1.5 rounded-lg border text-center transition-colors ${
-                            appId === '61554'
-                              ? 'bg-[#00e599]/20 border-[#00e599] text-[#00e599] font-bold'
-                              : 'bg-[#090d16] border-slate-800 text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          61554 (Web)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAppId('36544')}
-                          className={`py-1 px-1.5 rounded-lg border text-center transition-colors ${
-                            appId === '36544'
-                              ? 'bg-[#00e599]/20 border-[#00e599] text-[#00e599] font-bold'
-                              : 'bg-[#090d16] border-slate-800 text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          36544 (Bot)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAppId('16929')}
-                          className={`py-1 px-1.5 rounded-lg border text-center transition-colors ${
-                            appId === '16929'
-                              ? 'bg-[#00e599]/20 border-[#00e599] text-[#00e599] font-bold'
-                              : 'bg-[#090d16] border-slate-800 text-slate-400 hover:text-white'
-                          }`}
-                        >
-                          16929 (App)
-                        </button>
-                      </div>
-                      <input
-                        type="text"
-                        value={appId}
-                        onChange={(e) => setAppId(e.target.value)}
-                        placeholder="Enter Custom App ID (e.g. 61554)"
-                        className="w-full px-2.5 py-1.5 bg-[#090d16] border border-slate-800 rounded-lg text-white text-xs font-mono focus:ring-1 focus:ring-[#00e599]"
-                      />
-                    </div>
-
                     <p className="text-xs text-slate-300 leading-relaxed">
-                      Click below to sign in using your official <strong className="text-white">Deriv Email and Password</strong>. Deriv will verify your account on their secure portal (<code className="text-emerald-400">oauth.deriv.com</code>) and redirect back authorized for live trading.
+                      Click below to log in securely through Deriv's official OAuth login page. Your affiliate ID is automatically included for commission tracking.
                     </p>
 
                     <button
@@ -264,7 +205,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       className="w-full py-2.5 bg-[#00e599] hover:bg-[#00e599]/90 text-black font-bold text-xs rounded-xl transition-colors shadow flex items-center justify-center gap-2"
                     >
                       <ExternalLink className="w-4 h-4" />
-                      <span>Log in with Deriv (Email & Password)</span>
+                      <span>Log in with Deriv (Official OAuth)</span>
                     </button>
 
                     <div className="relative flex py-2 items-center">

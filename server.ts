@@ -1,138 +1,93 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { createServer } from 'http';
-import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 
 async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Set up Deriv WebSocket relay on /deriv-ws
-  const wss = new WebSocketServer({ noServer: true });
-
-  server.on('upgrade', (request, socket, head) => {
-    try {
-      const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-      if (url.pathname === '/deriv-ws') {
-        wss.handleUpgrade(request, socket, head, (clientWs) => {
-          wss.emit('connection', clientWs, request);
-        });
-      }
-    } catch (err) {
-      console.warn('Upgrade handling error:', err);
-      socket.destroy();
-    }
+  // Set up Vite middleware in development
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: 'spa',
   });
 
-  wss.on('connection', (clientWs, req) => {
-    try {
-      const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-      const appId = url.searchParams.get('app_id') || '1089';
+  app.use(vite.middlewares);
 
-      // Deriv clusters: red, ws, blue, green
-      const derivEndpoints = [
-        `wss://red.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`,
-        `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`,
-        `wss://blue.derivws.com/websockets/v3?app_id=${encodeURIComponent(appId)}`,
-      ];
+  const wss = new WebSocketServer({ server });
 
-      let derivWs: WebSocket | null = null;
-      let endpointIdx = 0;
-      let isConnectedToDeriv = false;
+  wss.on('connection', (clientWs) => {
+    let derivWs: WebSocket | null = null;
 
-      function connectToDeriv() {
-        if (endpointIdx >= derivEndpoints.length) {
-          endpointIdx = 0;
-        }
-        const targetUrl = derivEndpoints[endpointIdx++];
+    const connectToDeriv = (symbol: string, appId: string = '1089', token?: string) => {
+      if (derivWs) {
         try {
-          derivWs = new WebSocket(targetUrl, {
-            headers: {
-              Origin: 'https://app.deriv.com',
-              'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            },
-          });
-
-          derivWs.on('open', () => {
-            isConnectedToDeriv = true;
-            if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(
-                JSON.stringify({
-                  type: 'deriv_proxy_open',
-                  message: `Connected via Deriv Cloud Relay (App ID ${appId})`,
-                  app_id: appId,
-                })
-              );
-            }
-          });
-
-          derivWs.on('message', (data) => {
-            if (clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(data.toString());
-            }
-          });
-
-          derivWs.on('error', (err) => {
-            console.warn('Deriv relay backend connection error:', err.message);
-          });
-
-          derivWs.on('close', () => {
-            if (isConnectedToDeriv && clientWs.readyState === WebSocket.OPEN) {
-              clientWs.send(
-                JSON.stringify({
-                  type: 'deriv_proxy_closed',
-                  message: 'Deriv remote endpoint connection closed. Retrying...',
-                })
-              );
-            }
-            isConnectedToDeriv = false;
-          });
-        } catch (err: any) {
-          console.warn('Failed to connect to Deriv from proxy:', err.message);
-        }
+          derivWs.close();
+        } catch {}
       }
 
-      connectToDeriv();
+      const derivUrl = `wss://ws.derivws.com/websockets/v3?app_id=${appId}`;
+      derivWs = new WebSocket(derivUrl);
 
-      clientWs.on('message', (message) => {
-        try {
-          if (derivWs && derivWs.readyState === WebSocket.OPEN) {
-            derivWs.send(message.toString());
-          }
-        } catch (err: any) {
-          console.warn('Proxy failed forwarding message to Deriv:', err.message);
+      derivWs.on('open', () => {
+        clientWs.send(JSON.stringify({ type: 'status', status: 'connected' }));
+        if (token) {
+          derivWs?.send(JSON.stringify({ authorize: token }));
         }
+        derivWs?.send(
+          JSON.stringify({
+            ticks_history: symbol,
+            count: 300,
+            end: 'latest',
+            style: 'ticks',
+          })
+        );
+        derivWs?.send(
+          JSON.stringify({
+            ticks: symbol,
+            subscribe: 1,
+          })
+        );
       });
 
-      clientWs.on('close', () => {
+      derivWs.on('message', (data) => {
         try {
-          if (derivWs) {
-            derivWs.close();
-            derivWs = null;
-          }
+          const parsed = JSON.parse(data.toString());
+          clientWs.send(JSON.stringify({ type: 'deriv_message', data: parsed }));
         } catch {}
       });
-    } catch (err: any) {
-      console.warn('WebSocket connection setup error in proxy:', err.message);
-    }
+
+      derivWs.on('error', (err) => {
+        clientWs.send(JSON.stringify({ type: 'status', status: 'error', message: err.message }));
+      });
+
+      derivWs.on('close', () => {
+        clientWs.send(JSON.stringify({ type: 'status', status: 'disconnected' }));
+      });
+    };
+
+    clientWs.on('message', (message) => {
+      try {
+        const msg = JSON.parse(message.toString());
+        if (msg.action === 'subscribe') {
+          connectToDeriv(msg.symbol || 'R_75', msg.appId || '1089', msg.token);
+        } else if (msg.action === 'ping') {
+          if (derivWs && derivWs.readyState === WebSocket.OPEN) {
+            derivWs.send(JSON.stringify({ ping: 1 }));
+          }
+        }
+      } catch {}
+    });
+
+    clientWs.on('close', () => {
+      if (derivWs) {
+        try {
+          derivWs.close();
+        } catch {}
+      }
+    });
   });
-
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static('dist'));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(process.cwd(), 'dist', 'index.html'));
-    });
-  } else {
-    // Set up Vite middleware in development
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-
-    app.use(vite.middlewares);
-  }
 
   const PORT = 3000;
   server.listen(PORT, '0.0.0.0', () => {

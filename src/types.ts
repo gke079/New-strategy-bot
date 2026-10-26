@@ -101,7 +101,7 @@ export interface BotStrategyConfig {
   tradeType: TradeContractType;
   predictionDigit: number;
   duration: number;
-  durationUnit: 't' | 's';
+  durationUnit: 't' | 's' | 'm';
   stake: number;
   initialStake: number;
   martingale: number;
@@ -123,11 +123,26 @@ export interface Trade {
   exitPrice: number;
   exitDigit: number;
   profit: number;
-  status: 'won' | 'lost' | 'open';
+  status: 'won' | 'lost';
   balanceAfter: number;
-  botSource?: 'digits' | 'charts' | 'manual';
-  derivContractId?: number;
-  isRealTrade?: boolean;
+  botSource?: 'digits' | 'charts' | 'normal';
+}
+
+export interface NormalBotConfig {
+  id: string;
+  name: string;
+  marketId: string;
+  contractType: TradeContractType;
+  prediction: number | string;
+  stake: number;
+  initialStake: number;
+  duration: number;
+  durationUnit: 't' | 's' | 'm';
+  takeProfit: number;
+  stopLoss: number;
+  martingale: number; // multiplier e.g. 2.0
+  martingaleLevel: number; // max consecutive loss steps before resetting
+  active: boolean;
 }
 
 export interface BotMetrics {
@@ -148,9 +163,4 @@ export interface UserAccount {
   balance: number;
   currency: string;
   isDemo: boolean;
-  loginid?: string;
-  token?: string;
-  appId?: string;
-  isRealExecutionEnabled?: boolean;
-  tokenScopes?: string[];
 }
