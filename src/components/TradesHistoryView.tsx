@@ -69,15 +69,15 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
           <button
             onClick={exportCSV}
             disabled={trades.length === 0}
-            className="px-3 py-1.5 rounded-lg bg-[#090d16] hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-40"
+            className="px-3 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 text-sky-600" />
             <span>Export CSV</span>
           </button>
           <button
             onClick={onClearHistory}
             disabled={trades.length === 0}
-            className="px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-40"
+            className="px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
             <span>Clear</span>

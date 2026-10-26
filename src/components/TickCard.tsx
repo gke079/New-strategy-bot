@@ -283,9 +283,9 @@ export const TickCard: React.FC<TickCardProps> = ({
                 <button
                   type="button"
                   onClick={handleReset}
-                  className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white hover:bg-slate-800 transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="px-3 py-2 rounded-xl text-xs font-semibold bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
+                  <RotateCcw className="w-3.5 h-3.5 text-sky-600" />
                   <span>Reset Baseline</span>
                 </button>
 

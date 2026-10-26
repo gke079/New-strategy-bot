@@ -705,12 +705,11 @@ export default function App() {
               onOpenApiModal={() => setIsApiModalOpen(true)}
             />
 
-            {/* Ticks window row with editable input & count badge matching screenshot */}
+            {/* Compact Ticks window control */}
             <TicksWindowControl
               ticksWindow={ticksWindow}
               currentCount={pastTicks.length}
               onChangeWindow={handleChangeWindow}
-              onResetBuffer={handleResetBuffer}
             />
 
             {/* The 10 Digit Circles (0-9) & Legend Pills matching screenshot */}

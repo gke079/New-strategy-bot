@@ -168,11 +168,11 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
           {/* Reset Trade History Button */}
           <button
             onClick={handleResetHistoryClick}
-            className="px-3 py-1.5 rounded-xl border border-neutral-300 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            className="px-3 py-1.5 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
             title="Reset trade history and performance metrics (bot settings are preserved)"
           >
             <RotateCcw
-              className={`w-3.5 h-3.5 text-neutral-700 ${
+              className={`w-3.5 h-3.5 text-sky-600 ${
                 resetTradeFeedback ? 'animate-spin' : ''
               }`}
             />
@@ -514,16 +514,20 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
         {/* Save Configuration Button */}
         <button
           onClick={handleSaveConfig}
-          className="w-full py-2 px-3 rounded-xl bg-neutral-900 hover:bg-black text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer h-[38px] active:scale-95"
+          className={`w-full py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer h-[38px] active:scale-95 border ${
+            savedFeedback
+              ? 'bg-emerald-600 hover:bg-emerald-500 text-sky-50 border-emerald-500'
+              : 'bg-blue-600 hover:bg-blue-500 text-sky-50 border-blue-500'
+          }`}
         >
           {savedFeedback ? (
             <>
-              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <Check className="w-3.5 h-3.5 text-sky-50" />
               <span>Saved!</span>
             </>
           ) : (
             <>
-              <BookmarkCheck className="w-3.5 h-3.5 text-neutral-300" />
+              <BookmarkCheck className="w-3.5 h-3.5 text-sky-100" />
               <span>Save Strategy</span>
             </>
           )}

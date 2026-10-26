@@ -374,12 +374,12 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
                   </p>
                   <div className="flex items-center gap-1.5 bg-[#090d16] p-1.5 rounded border border-slate-800">
                     <code className="text-[#00e599] font-mono text-[10px] truncate flex-1 select-all">
-                      {typeof window !== 'undefined' ? window.location.origin : 'https://ais-pre-lnovbjhru2exv7uyjbvykq-71531466500.europe-west3.run.app'}
+                      {typeof window !== 'undefined' ? window.location.origin : ''}
                     </code>
                     <button
                       type="button"
                       onClick={() => {
-                        const url = typeof window !== 'undefined' ? window.location.origin : 'https://ais-pre-lnovbjhru2exv7uyjbvykq-71531466500.europe-west3.run.app';
+                        const url = typeof window !== 'undefined' ? window.location.origin : '';
                         navigator.clipboard.writeText(url);
                         setCopiedUrl(true);
                         setTimeout(() => setCopiedUrl(false), 2000);

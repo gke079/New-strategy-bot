@@ -160,11 +160,11 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={handleResetHistoryClick}
-            className="px-3 py-1.5 rounded-xl border border-neutral-300 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+            className="px-3 py-1.5 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
             title="Reset trade history and performance metrics (bot settings are preserved)"
           >
             <RotateCcw
-              className={`w-3.5 h-3.5 text-neutral-700 ${
+              className={`w-3.5 h-3.5 text-sky-600 ${
                 resetTradeFeedback ? 'animate-spin' : ''
               }`}
             />
@@ -519,24 +519,31 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
         <button
           onClick={handleSaveStrategy}
-          className="w-full py-2 px-3 rounded-xl bg-neutral-900 hover:bg-black text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+          className={`w-full py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95 border ${
+            savedFeedback
+              ? 'bg-emerald-600 hover:bg-emerald-500 text-sky-50 border-emerald-500'
+              : 'bg-blue-600 hover:bg-blue-500 text-sky-50 border-blue-500'
+          }`}
         >
           {savedFeedback ? (
             <>
-              <BookmarkCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <BookmarkCheck className="w-3.5 h-3.5 text-sky-50" />
               <span>Strategy Saved!</span>
             </>
           ) : (
-            <span>Save strategy</span>
+            <>
+              <BookmarkCheck className="w-3.5 h-3.5 text-sky-100" />
+              <span>Save strategy</span>
+            </>
           )}
         </button>
 
         <button
           onClick={handleResetHistoryClick}
-          className="w-full py-2 px-3 rounded-xl bg-neutral-100 hover:bg-neutral-200 border border-neutral-300 text-neutral-800 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+          className="w-full py-2 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-700 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
           title="Reset trade history and performance metrics (bot settings are preserved)"
         >
-          <RotateCcw className={`w-3.5 h-3.5 text-neutral-700 transition-transform ${resetTradeFeedback ? 'animate-spin' : ''}`} />
+          <RotateCcw className={`w-3.5 h-3.5 text-sky-600 transition-transform ${resetTradeFeedback ? 'animate-spin' : ''}`} />
           <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
         </button>
       </div>
@@ -646,10 +653,10 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               <span>Recent Trade Executions</span>
               <button
                 onClick={handleResetHistoryClick}
-                className="flex items-center gap-1 font-mono normal-case cursor-pointer text-neutral-600 hover:text-black transition-colors"
+                className="flex items-center gap-1 font-mono normal-case cursor-pointer px-2 py-0.5 rounded-md bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 transition-colors"
                 title="Reset trade history and performance metrics"
               >
-                <RotateCcw className="w-2.5 h-2.5" />
+                <RotateCcw className="w-2.5 h-2.5 text-sky-600" />
                 <span>Reset history</span>
               </button>
             </div>

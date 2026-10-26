@@ -28,7 +28,7 @@ export const RatioCards: React.FC<RatioCardsProps> = ({
         </div>
 
         {/* Visual Dual Progress Bar matching screenshot */}
-        <div className="w-full h-2.5 bg-slate-800/80 rounded-full overflow-hidden flex">
+        <div className="w-full h-2.5 bg-slate-200/30 rounded-full overflow-hidden flex">
           <div
             className="h-full bg-cyan-500 transition-all duration-300"
             style={{ width: `${ratioStats.evenPercentage}%` }}
@@ -43,7 +43,13 @@ export const RatioCards: React.FC<RatioCardsProps> = ({
         <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
           <span>{ratioStats.evenCount} even / {ratioStats.oddCount} odd</span>
           {ratioStats.currentEvenOddStreakType && (
-            <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+            <span
+              className={`font-mono text-xs font-bold px-2.5 py-0.5 rounded-md border ${
+                ratioStats.currentEvenOddStreakType === 'even'
+                  ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                  : 'bg-rose-50 text-rose-700 border-rose-200'
+              }`}
+            >
               Streak: {ratioStats.currentEvenOddStreakCount} {ratioStats.currentEvenOddStreakType.toUpperCase()}
             </span>
           )}
@@ -64,7 +70,7 @@ export const RatioCards: React.FC<RatioCardsProps> = ({
         </div>
 
         {/* Visual Dual Progress Bar */}
-        <div className="w-full h-2.5 bg-slate-800/80 rounded-full overflow-hidden flex">
+        <div className="w-full h-2.5 bg-slate-200/30 rounded-full overflow-hidden flex">
           <div
             className="h-full bg-amber-500 transition-all duration-300"
             style={{ width: `${ratioStats.over4Percentage}%` }}
@@ -79,7 +85,13 @@ export const RatioCards: React.FC<RatioCardsProps> = ({
         <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
           <span>{ratioStats.over4Count} over / {ratioStats.under5Count} under</span>
           {ratioStats.currentOverUnderStreakType && (
-            <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+            <span
+              className={`font-mono text-xs font-bold px-2.5 py-0.5 rounded-md border ${
+                ratioStats.currentOverUnderStreakType === 'over'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}
+            >
               Streak: {ratioStats.currentOverUnderStreakCount} {ratioStats.currentOverUnderStreakType.toUpperCase()}
             </span>
           )}

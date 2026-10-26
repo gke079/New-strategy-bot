@@ -24,7 +24,16 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  const wss = new WebSocketServer({ server });
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (request, socket, head) => {
+    if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  });
 
   wss.on('connection', (clientWs) => {
     let derivWs: WebSocket | null = null;

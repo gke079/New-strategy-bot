@@ -393,7 +393,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       <button
                         type="button"
                         onClick={() => setAppId('1089')}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold transition-colors"
+                        className="px-2.5 py-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 text-[11px] font-bold transition-colors cursor-pointer"
                       >
                         Reset 1089
                       </button>
@@ -526,7 +526,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <button
                       key={amt}
                       onClick={() => handleReset(amt)}
-                      className="py-2 px-3 rounded-xl bg-[#090d16] border border-slate-800 hover:border-[#00e599]/60 text-xs font-mono font-semibold text-slate-200 transition-all hover:bg-slate-800 cursor-pointer"
+                      className="py-2 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 hover:border-sky-400 text-xs font-mono font-bold text-sky-800 transition-all cursor-pointer"
                     >
                       ${amt.toLocaleString()}
                     </button>
