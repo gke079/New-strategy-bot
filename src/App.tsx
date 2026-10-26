@@ -87,6 +87,7 @@ export default function App() {
     return {
       id: 'digits-bot',
       name: 'Over 2 after 3 lows',
+      marketId: DEFAULT_MARKET.id,
       entryCondition: 'under_x',
       n: 3,
       xDigit: 3,
@@ -102,6 +103,7 @@ export default function App() {
       takeProfit: 10.0,
       stopLoss: 20.0,
       active: false,
+      executionMode: 'reanalyse',
     };
   });
 
@@ -128,6 +130,7 @@ export default function App() {
     return {
       id: 'charts-bot',
       name: '3 Rising ticks then Fall Trend Bot',
+      marketId: DEFAULT_MARKET.id,
       entryCondition: 'n_rising_then_falling',
       n: 3,
       xDigit: 3,
@@ -143,6 +146,7 @@ export default function App() {
       takeProfit: 15.0,
       stopLoss: 25.0,
       active: false,
+      executionMode: 'reanalyse',
     };
   });
 
@@ -208,6 +212,7 @@ export default function App() {
 
   // References to keep singleton instances
   const engineRef = useRef<TickStreamEngine | null>(null);
+  const selectedMarketRef = useRef<Market>(selectedMarket);
   const digitsBotExecutorRef = useRef<BotExecutor | null>(null);
   const chartsBotExecutorRef = useRef<BotExecutor | null>(null);
   const normalBotExecutorRef = useRef<NormalBotExecutor | null>(null);
@@ -330,19 +335,21 @@ export default function App() {
       const dStats = calculateDigitStats(pastTicksBuffer);
       const rStats = calculateRatioStats(pastTicksBuffer);
 
+      const activeMarketId = selectedMarketRef.current.id;
+
       // Independent evaluation: Digits Bot
       if (digitsBotExecutorRef.current && digitsBotExecutorRef.current.getStatus()) {
-        digitsBotExecutorRef.current.evaluateTick(newTick, allTicks, dStats, rStats, selectedMarket.id);
+        digitsBotExecutorRef.current.evaluateTick(newTick, allTicks, dStats, rStats, activeMarketId);
       }
 
       // Independent evaluation: Charts Bot
       if (chartsBotExecutorRef.current && chartsBotExecutorRef.current.getStatus()) {
-        chartsBotExecutorRef.current.evaluateTick(newTick, allTicks, dStats, rStats, selectedMarket.id);
+        chartsBotExecutorRef.current.evaluateTick(newTick, allTicks, dStats, rStats, activeMarketId);
       }
 
       // Independent evaluation: Normal Bot (Continuous Execution)
       if (normalBotExecutorRef.current && normalBotExecutorRef.current.getStatus()) {
-        normalBotExecutorRef.current.evaluateTick(newTick, allTicks, selectedMarket.id);
+        normalBotExecutorRef.current.evaluateTick(newTick, allTicks, activeMarketId);
         setNormalBotStake(normalBotExecutorRef.current.getCurrentStake());
         setNormalBotStep(normalBotExecutorRef.current.getCurrentStep());
       }
@@ -403,10 +410,26 @@ export default function App() {
 
   // Sync market changes
   const handleSelectMarket = (market: Market) => {
+    selectedMarketRef.current = market;
     setSelectedMarket(market);
     if (engineRef.current) {
       engineRef.current.setMarket(market);
     }
+    setDigitsBotConfig((prev) => {
+      const next = { ...prev, marketId: market.id };
+      digitsBotExecutorRef.current?.updateConfig(next);
+      return next;
+    });
+    setChartsBotConfig((prev) => {
+      const next = { ...prev, marketId: market.id };
+      chartsBotExecutorRef.current?.updateConfig(next);
+      return next;
+    });
+    setNormalBotConfig((prev) => {
+      const next = { ...prev, marketId: market.id };
+      normalBotExecutorRef.current?.updateConfig(next);
+      return next;
+    });
   };
 
   // Sync window changes
@@ -445,8 +468,17 @@ export default function App() {
   const handleUpdateDigitsBotConfig = (newConfig: Partial<BotStrategyConfig>) => {
     const updated = { ...digitsBotConfig, ...newConfig };
     setDigitsBotConfig(updated);
+    try {
+      localStorage.setItem('tickedge_digits_bot_strategy', JSON.stringify(updated));
+    } catch {}
     if (digitsBotExecutorRef.current) {
       digitsBotExecutorRef.current.updateConfig(updated);
+    }
+    if (newConfig.marketId && newConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === newConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
     }
   };
 
@@ -482,8 +514,17 @@ export default function App() {
   const handleUpdateChartsBotConfig = (newConfig: Partial<BotStrategyConfig>) => {
     const updated = { ...chartsBotConfig, ...newConfig };
     setChartsBotConfig(updated);
+    try {
+      localStorage.setItem('tickedge_charts_bot_strategy', JSON.stringify(updated));
+    } catch {}
     if (chartsBotExecutorRef.current) {
       chartsBotExecutorRef.current.updateConfig(updated);
+    }
+    if (newConfig.marketId && newConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === newConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
     }
   };
 
@@ -724,10 +765,10 @@ export default function App() {
               }}
             />
 
-            {/* Two Ratio Cards (Even/Odd and Over 4/Under 5) matching screenshot */}
-            <RatioCards ratioStats={ratioStats} />
+            {/* Two Ratio Cards (Even/Odd and Dynamic Over/Under Barrier Selector) */}
+            <RatioCards ratioStats={ratioStats} ticks={pastTicks} />
 
-            {/* Last 30 digits Ribbon matching screenshot */}
+            {/* Last 20 digits Ribbon */}
             <LastDigitsRibbon ticks={ticks} />
 
             {/* Deriv Advanced TradingView Chart transferred above the bot */}
@@ -745,6 +786,7 @@ export default function App() {
               onResetStats={handleResetDigitsBotStats}
               onResetAfterTrade={handleResetDigitsBotAfterTrade}
               balance={userAccount.balance}
+              selectedMarketId={selectedMarket.id}
               storageKey="tickedge_digits_bot_strategy"
               tag="Digits Bot"
               theme={theme}
@@ -859,6 +901,7 @@ export default function App() {
                 onResetStats={handleResetChartsBotStats}
                 onResetAfterTrade={handleResetChartsBotAfterTrade}
                 balance={userAccount.balance}
+                selectedMarketId={selectedMarket.id}
                 storageKey="tickedge_charts_bot_strategy"
                 tag="Strategy Bot"
                 theme={theme}

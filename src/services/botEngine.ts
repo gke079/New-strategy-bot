@@ -22,6 +22,7 @@ export class BotExecutor {
   private balance: number = 10000;
   private isRunning: boolean = false;
   private isPaused: boolean = false;
+  private analysisTriggered: boolean = false;
   public readonly botSource: 'digits' | 'charts';
   private onTradeListeners: Set<(trade: Trade, metrics: BotMetrics, balance: number) => void> = new Set();
   private onStatusChangeListeners: Set<(isRunning: boolean, reason?: string) => void> = new Set();
@@ -45,6 +46,16 @@ export class BotExecutor {
   }
 
   public updateConfig(newConfig: Partial<BotStrategyConfig>) {
+    const analysisParamChanged =
+      (newConfig.entryCondition !== undefined && newConfig.entryCondition !== this.config.entryCondition) ||
+      (newConfig.n !== undefined && newConfig.n !== this.config.n) ||
+      (newConfig.xDigit !== undefined && newConfig.xDigit !== this.config.xDigit) ||
+      (newConfig.pPercent !== undefined && newConfig.pPercent !== this.config.pPercent);
+
+    if (analysisParamChanged || newConfig.executionMode === 'reanalyse') {
+      this.analysisTriggered = false;
+    }
+
     this.config = { ...this.config, ...newConfig };
     if (!this.isRunning) {
       this.currentStake = this.config.initialStake;
@@ -80,6 +91,7 @@ export class BotExecutor {
   public start() {
     this.isRunning = true;
     this.isPaused = false;
+    this.analysisTriggered = false;
     this.pendingContract = null;
     this.currentStake = this.config.initialStake;
     this.currentStep = 0;
@@ -92,6 +104,7 @@ export class BotExecutor {
   public stop(reason?: string) {
     this.isRunning = false;
     this.isPaused = false;
+    this.analysisTriggered = false;
     this.pendingContract = null;
     this.notifyStatus(false, reason);
     this.notifyPause(false);
@@ -112,6 +125,7 @@ export class BotExecutor {
   public resetStats() {
     this.trades = [];
     this.pendingContract = null;
+    this.analysisTriggered = false;
     this.currentStake = this.config.initialStake;
     this.currentStep = 0;
     this.consecutiveLosses = 0;
@@ -376,9 +390,17 @@ export class BotExecutor {
     }
 
     // 2. Evaluate Entry Condition using ticks before the current tick
+    // - 'reanalyse' (default): checks entry condition before every single trade
+    // - 'continuous': checks entry condition once, then trades continuously without re-analysing
     const priorTicks = allTicks.slice(0, -1);
-    if (!this.checkEntryCondition(priorTicks, digitStats, ratioStats)) {
-      return;
+    const isContinuous = this.config.executionMode === 'continuous';
+    if (!isContinuous || !this.analysisTriggered) {
+      if (!this.checkEntryCondition(priorTicks, digitStats, ratioStats)) {
+        return;
+      }
+      if (isContinuous) {
+        this.analysisTriggered = true;
+      }
     }
 
     // Determine signal details
@@ -582,7 +604,7 @@ export class BotExecutor {
     const tradeRecord: Trade = {
       id: 'TRD-' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
       timestamp: tick.epoch,
-      marketId,
+      marketId: this.config.marketId || marketId,
       strategyName: this.config.name,
       contractType: tradeType,
       prediction: predictionText,

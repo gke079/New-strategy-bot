@@ -91,9 +91,12 @@ export type TradeContractType =
   | 'ASIAN_UP'
   | 'ASIAN_DOWN';
 
+export type StrategyExecutionMode = 'reanalyse' | 'continuous';
+
 export interface BotStrategyConfig {
   id: string;
   name: string;
+  marketId?: string;
   entryCondition: EntryConditionType;
   n: number;
   xDigit: number;
@@ -110,6 +113,7 @@ export interface BotStrategyConfig {
   stopLoss: number;
   active: boolean;
   botSpeed?: 'normal' | 'fast'; // 'fast' = trades every tick; 'normal' = skips 1 tick between entry and exit
+  executionMode?: StrategyExecutionMode; // 'reanalyse' = analyse again after a single trade; 'continuous' = trade continuous after analysis
 }
 
 export interface Trade {

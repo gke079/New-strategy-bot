@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Play, Square, Pause, ChevronDown, Check, RotateCcw, Zap, BookmarkCheck, Clock } from 'lucide-react';
-import { BotMetrics, BotStrategyConfig, EntryConditionType, TradeContractType, Trade } from '../types';
+import { Play, Square, Pause, ChevronDown, RotateCcw, Zap, BookmarkCheck, Clock, Repeat, RefreshCw } from 'lucide-react';
+import { BotMetrics, BotStrategyConfig, EntryConditionType, StrategyExecutionMode, TradeContractType, Trade } from '../types';
+import { SYNTHETIC_MARKETS } from '../services/markets';
 
 interface BotStrategyPanelProps {
   config: BotStrategyConfig;
@@ -16,6 +17,7 @@ interface BotStrategyPanelProps {
   onResetStats: () => void;
   onResetAfterTrade?: () => void;
   balance: number;
+  selectedMarketId?: string;
   storageKey?: string;
   tag?: string;
   theme?: 'dark' | 'light';
@@ -35,6 +37,7 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
   onResetStats,
   onResetAfterTrade,
   balance,
+  selectedMarketId,
   storageKey,
   tag,
   theme,
@@ -251,16 +254,59 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </div>
       </div>
 
-      {/* Field: Name */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-semibold text-neutral-700">Name</label>
-        <input
-          type="text"
-          value={config.name}
-          onChange={(e) => onUpdateConfig({ name: e.target.value })}
-          placeholder="e.g. Over 2 after 3 lows"
-          className="w-full px-3.5 py-2.5 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all font-medium"
-        />
+      {/* Row: Market Selector & Strategy Name */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-neutral-700">Market</label>
+          <div className="relative">
+            <select
+              value={config.marketId || selectedMarketId || 'R_75'}
+              onChange={(e) => onUpdateConfig({ marketId: e.target.value })}
+              className="w-full appearance-none px-3.5 py-2.5 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 font-medium cursor-pointer"
+            >
+              <optgroup label="Plain Volatility Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'volatility').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Volatility (1s) Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'volatility-1s').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Step Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'step').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Jump Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'jump').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+            <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-neutral-700">Name</label>
+          <input
+            type="text"
+            value={config.name}
+            onChange={(e) => onUpdateConfig({ name: e.target.value })}
+            placeholder="e.g. Over 2 after 3 lows"
+            className="w-full px-3.5 py-2.5 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all font-medium"
+          />
+        </div>
       </div>
 
       {/* Field: Entry condition */}
@@ -354,6 +400,55 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
             onChange={(e) => onUpdateConfig({ pPercent: parseFloat(e.target.value) || 0 })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
+        </div>
+      </div>
+
+      {/* Post-Analysis Execution Mode: Analyse again after single trade vs Trade continuous after analysis */}
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-semibold text-neutral-700">After analysis execution</label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {(
+            [
+              {
+                value: 'reanalyse' as StrategyExecutionMode,
+                label: 'Analyse again after a single trade',
+                desc: 'Re-checks entry condition before every trade',
+                Icon: RefreshCw,
+              },
+              {
+                value: 'continuous' as StrategyExecutionMode,
+                label: 'Trade continuous after analysis',
+                desc: 'Analyses once, then trades continuously',
+                Icon: Repeat,
+              },
+            ]
+          ).map(({ value, label, desc, Icon }) => {
+            const isActive = (config.executionMode || 'reanalyse') === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => onUpdateConfig({ executionMode: value })}
+                className={`flex items-start gap-2 px-3 py-2 rounded-xl border text-left transition-all cursor-pointer ${
+                  isActive
+                    ? 'bg-[#00FFFF]/25 border-[#00b8b8] text-sky-950 ring-1 ring-[#00d4d4]'
+                    : 'bg-neutral-50 hover:bg-sky-50/60 border-neutral-300 text-neutral-700'
+                }`}
+              >
+                <Icon
+                  className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${
+                    isActive ? 'text-sky-800' : 'text-neutral-500'
+                  }`}
+                />
+                <div className="flex flex-col leading-tight">
+                  <span className={`text-xs ${isActive ? 'font-bold text-sky-950' : 'font-semibold text-neutral-800'}`}>
+                    {label}
+                  </span>
+                  <span className="text-[10px] text-neutral-500 mt-0.5">{desc}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -515,11 +610,11 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </div>
       </div>
 
-      {/* Primary Action Buttons: Save Strategy & Reset after trade */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
+      {/* Primary Action Buttons: Compact Save Strategy & Reset History fitted to font size */}
+      <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={handleSaveStrategy}
-          className={`w-full py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95 border ${
+          className={`w-fit inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] leading-tight transition-all shadow-xs cursor-pointer active:scale-95 border whitespace-nowrap ${
             savedFeedback
               ? 'bg-emerald-600 hover:bg-emerald-500 text-sky-50 border-emerald-500'
               : 'bg-blue-600 hover:bg-blue-500 text-sky-50 border-blue-500'
@@ -527,12 +622,12 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         >
           {savedFeedback ? (
             <>
-              <BookmarkCheck className="w-3.5 h-3.5 text-sky-50" />
+              <BookmarkCheck className="w-3 h-3 text-sky-50 shrink-0" />
               <span>Strategy Saved!</span>
             </>
           ) : (
             <>
-              <BookmarkCheck className="w-3.5 h-3.5 text-sky-100" />
+              <BookmarkCheck className="w-3 h-3 text-sky-100 shrink-0" />
               <span>Save strategy</span>
             </>
           )}
@@ -540,10 +635,10 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
 
         <button
           onClick={handleResetHistoryClick}
-          className="w-full py-2 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-700 font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+          className="w-fit inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-700 font-semibold text-[11px] leading-tight transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap"
           title="Reset trade history and performance metrics (bot settings are preserved)"
         >
-          <RotateCcw className={`w-3.5 h-3.5 text-sky-600 transition-transform ${resetTradeFeedback ? 'animate-spin' : ''}`} />
+          <RotateCcw className={`w-3 h-3 text-sky-600 shrink-0 transition-transform ${resetTradeFeedback ? 'animate-spin' : ''}`} />
           <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
         </button>
       </div>
@@ -566,7 +661,14 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               }`}
             />
             <span>
-              Status: {isRunning ? (isPaused ? 'Paused' : 'Active & Scanning Ticks') : 'Idle'}
+              Status:{' '}
+              {isRunning
+                ? isPaused
+                  ? 'Paused'
+                  : (config.executionMode || 'reanalyse') === 'continuous'
+                  ? 'Active (Continuous after Analysis)'
+                  : 'Active (Re-analysing Each Trade)'
+                : 'Idle'}
             </span>
           </div>
           <span

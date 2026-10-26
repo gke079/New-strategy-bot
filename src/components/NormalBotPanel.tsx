@@ -496,42 +496,55 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
         </div>
       </div>
 
-      {/* Row 5: Stop loss & Save button */}
-      <div className="grid grid-cols-2 gap-2.5 items-end">
-        {/* Field 9: Stop loss */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-neutral-700">Stop loss</label>
-          <input
-            type="number"
-            min="1"
-            step="5"
-            value={config.stopLoss}
-            onChange={(e) => onUpdateConfig({ stopLoss: parseFloat(e.target.value) || 20 })}
-            className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
-          />
+      {/* Row 5: Stop loss & Compact Save Strategy button */}
+      <div className="flex flex-col gap-2.5">
+        <div className="grid grid-cols-2 gap-2.5">
+          {/* Field 9: Stop loss */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold text-neutral-700">Stop loss</label>
+            <input
+              type="number"
+              min="1"
+              step="5"
+              value={config.stopLoss}
+              onChange={(e) => onUpdateConfig({ stopLoss: parseFloat(e.target.value) || 20 })}
+              className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
+            />
+          </div>
         </div>
 
-        {/* Save Configuration Button */}
-        <button
-          onClick={handleSaveConfig}
-          className={`w-full py-2 px-3 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer h-[38px] active:scale-95 border ${
-            savedFeedback
-              ? 'bg-emerald-600 hover:bg-emerald-500 text-sky-50 border-emerald-500'
-              : 'bg-blue-600 hover:bg-blue-500 text-sky-50 border-blue-500'
-          }`}
-        >
-          {savedFeedback ? (
-            <>
-              <Check className="w-3.5 h-3.5 text-sky-50" />
-              <span>Saved!</span>
-            </>
-          ) : (
-            <>
-              <BookmarkCheck className="w-3.5 h-3.5 text-sky-100" />
-              <span>Save Strategy</span>
-            </>
-          )}
-        </button>
+        {/* Compact Save Strategy & Reset History Buttons fitted to font size */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleSaveConfig}
+            className={`w-fit inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold text-[11px] leading-tight transition-all shadow-xs cursor-pointer active:scale-95 border whitespace-nowrap ${
+              savedFeedback
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-sky-50 border-emerald-500'
+                : 'bg-blue-600 hover:bg-blue-500 text-sky-50 border-blue-500'
+            }`}
+          >
+            {savedFeedback ? (
+              <>
+                <Check className="w-3 h-3 text-sky-50 shrink-0" />
+                <span>Saved!</span>
+              </>
+            ) : (
+              <>
+                <BookmarkCheck className="w-3 h-3 text-sky-100 shrink-0" />
+                <span>Save Strategy</span>
+              </>
+            )}
+          </button>
+
+          <button
+            onClick={handleResetHistoryClick}
+            className="w-fit inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-700 font-semibold text-[11px] leading-tight transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap"
+            title="Reset trade history and performance metrics (bot settings are preserved)"
+          >
+            <RotateCcw className={`w-3 h-3 text-sky-600 shrink-0 transition-transform ${resetTradeFeedback ? 'animate-spin' : ''}`} />
+            <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Live Compact Metrics Bar (Footer in White Bot Box) */}

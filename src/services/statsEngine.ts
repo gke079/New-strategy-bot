@@ -157,3 +157,76 @@ export function calculateRatioStats(ticks: Tick[]): RatioStats {
     currentOverUnderStreakCount,
   };
 }
+
+export interface BarrierStats {
+  barrier: number;
+  overCount: number;
+  underCount: number;
+  equalCount: number;
+  overPercentage: number;
+  underPercentage: number;
+  equalPercentage: number;
+  streakType: 'over' | 'under' | 'equal' | null;
+  streakCount: number;
+}
+
+export function calculateBarrierStats(ticks: Tick[], barrier: number): BarrierStats {
+  const total = ticks.length;
+  if (total === 0) {
+    return {
+      barrier,
+      overCount: 0,
+      underCount: 0,
+      equalCount: 0,
+      overPercentage: 0,
+      underPercentage: 0,
+      equalPercentage: 0,
+      streakType: null,
+      streakCount: 0,
+    };
+  }
+
+  let overCount = 0;
+  let underCount = 0;
+  let equalCount = 0;
+
+  for (let i = 0; i < total; i++) {
+    const d = ticks[i].lastDigit;
+    if (d > barrier) {
+      overCount++;
+    } else if (d < barrier) {
+      underCount++;
+    } else {
+      equalCount++;
+    }
+  }
+
+  let streakType: 'over' | 'under' | 'equal' | null = null;
+  let streakCount = 0;
+
+  for (let i = total - 1; i >= 0; i--) {
+    const d = ticks[i].lastDigit;
+    const type: 'over' | 'under' | 'equal' =
+      d > barrier ? 'over' : d < barrier ? 'under' : 'equal';
+    if (streakType === null) {
+      streakType = type;
+      streakCount = 1;
+    } else if (streakType === type) {
+      streakCount++;
+    } else {
+      break;
+    }
+  }
+
+  return {
+    barrier,
+    overCount,
+    underCount,
+    equalCount,
+    overPercentage: Number(((overCount / total) * 100).toFixed(1)),
+    underPercentage: Number(((underCount / total) * 100).toFixed(1)),
+    equalPercentage: Number(((equalCount / total) * 100).toFixed(1)),
+    streakType,
+    streakCount,
+  };
+}
