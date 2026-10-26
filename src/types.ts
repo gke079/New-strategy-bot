@@ -109,6 +109,7 @@ export interface BotStrategyConfig {
   takeProfit: number;
   stopLoss: number;
   active: boolean;
+  botSpeed?: 'normal' | 'fast'; // 'fast' = trades every tick; 'normal' = skips 1 tick between entry and exit
 }
 
 export interface Trade {
@@ -143,6 +144,7 @@ export interface NormalBotConfig {
   martingale: number; // multiplier e.g. 2.0
   martingaleLevel: number; // max consecutive loss steps before resetting
   active: boolean;
+  botSpeed?: 'normal' | 'fast'; // 'fast' = trades every tick; 'normal' = skips 1 tick between entry and exit
 }
 
 export interface BotMetrics {

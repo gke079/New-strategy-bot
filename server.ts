@@ -3,17 +3,26 @@ import { createServer as createViteServer } from 'vite';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 
+import path from 'path';
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Set up Vite middleware in development
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
-
-  app.use(vite.middlewares);
+  if (process.env.NODE_ENV === 'production') {
+    const distPath = path.resolve(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.resolve(distPath, 'index.html'));
+    });
+  } else {
+    // Set up Vite middleware in development
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
 
   const wss = new WebSocketServer({ server });
 
@@ -89,7 +98,7 @@ async function startServer() {
     });
   });
 
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
   });

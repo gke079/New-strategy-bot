@@ -26,6 +26,15 @@ export class BotExecutor {
   private onTradeListeners: Set<(trade: Trade, metrics: BotMetrics, balance: number) => void> = new Set();
   private onStatusChangeListeners: Set<(isRunning: boolean, reason?: string) => void> = new Set();
   private onPauseChangeListeners: Set<(isPaused: boolean) => void> = new Set();
+  private pendingContract: {
+    entryTick: Tick;
+    stake: number;
+    ticksRemaining: number;
+    predictionText: string;
+    payoutMultiplier: number;
+    tradeType: BotStrategyConfig['tradeType'];
+    predictionDigit: number;
+  } | null = null;
 
   constructor(config: BotStrategyConfig, initialBalance: number = 10000, botSource: 'digits' | 'charts' = 'digits') {
     this.config = { ...config };
@@ -71,6 +80,7 @@ export class BotExecutor {
   public start() {
     this.isRunning = true;
     this.isPaused = false;
+    this.pendingContract = null;
     this.currentStake = this.config.initialStake;
     this.currentStep = 0;
     this.consecutiveLosses = 0;
@@ -82,6 +92,7 @@ export class BotExecutor {
   public stop(reason?: string) {
     this.isRunning = false;
     this.isPaused = false;
+    this.pendingContract = null;
     this.notifyStatus(false, reason);
     this.notifyPause(false);
   }
@@ -100,6 +111,7 @@ export class BotExecutor {
 
   public resetStats() {
     this.trades = [];
+    this.pendingContract = null;
     this.currentStake = this.config.initialStake;
     this.currentStep = 0;
     this.consecutiveLosses = 0;
@@ -339,7 +351,31 @@ export class BotExecutor {
       return;
     }
 
-    // Evaluate Entry Condition using ticks before the current tick
+    // 1. If a contract is pending in Normal Mode:
+    if (this.pendingContract) {
+      if (this.pendingContract.ticksRemaining === 2) {
+        // Normal mode: skip 1 tick!
+        this.pendingContract.ticksRemaining = 1;
+        return;
+      }
+      // This tick is the exit tick!
+      const contract = this.pendingContract;
+      this.pendingContract = null;
+      this.executeStrategyOutcome(
+        tick,
+        allTicks,
+        contract.entryTick,
+        contract.stake,
+        contract.tradeType,
+        contract.predictionDigit,
+        contract.predictionText,
+        contract.payoutMultiplier,
+        marketId
+      );
+      return;
+    }
+
+    // 2. Evaluate Entry Condition using ticks before the current tick
     const priorTicks = allTicks.slice(0, -1);
     if (!this.checkEntryCondition(priorTicks, digitStats, ratioStats)) {
       return;
@@ -366,10 +402,50 @@ export class BotExecutor {
       return;
     }
 
-    // Evaluate trade outcome
+    const isNormalSpeed = (this.config.botSpeed || 'normal') === 'normal';
+    if (isNormalSpeed) {
+      // Normal mode: Record entry tick, skip 1 tick, then exit on the next tick
+      this.pendingContract = {
+        entryTick: tick,
+        stake: stakeToUse,
+        ticksRemaining: 2,
+        predictionText,
+        payoutMultiplier,
+        tradeType,
+        predictionDigit,
+      };
+      return;
+    }
+
+    // Fast mode: Trades every tick!
+    const prevTick = priorTicks.length > 0 ? priorTicks[priorTicks.length - 1] : tick;
+    this.executeStrategyOutcome(
+      tick,
+      allTicks,
+      prevTick,
+      stakeToUse,
+      tradeType,
+      predictionDigit,
+      predictionText,
+      payoutMultiplier,
+      marketId
+    );
+  }
+
+  // Executes the strategy outcome on exit tick
+  private executeStrategyOutcome(
+    tick: Tick,
+    allTicks: Tick[],
+    entryTick: Tick,
+    stakeToUse: number,
+    tradeType: BotStrategyConfig['tradeType'],
+    predictionDigit: number,
+    predictionText: string,
+    payoutMultiplier: number,
+    marketId: string
+  ) {
     const digit = tick.lastDigit;
-    const prevTick = priorTicks[priorTicks.length - 1];
-    const prevQuote = prevTick ? prevTick.quote : tick.quote;
+    const prevQuote = entryTick ? entryTick.quote : tick.quote;
     let won = false;
 
     switch (tradeType) {

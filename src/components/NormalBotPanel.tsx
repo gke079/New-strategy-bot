@@ -9,6 +9,7 @@ import {
   BookmarkCheck,
   Sparkles,
   Zap,
+  Clock,
 } from 'lucide-react';
 import { BotMetrics, NormalBotConfig, Trade, TradeContractType } from '../types';
 import { SYNTHETIC_MARKETS } from '../services/markets';
@@ -178,6 +179,37 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
             <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
           </button>
 
+          {/* Speed Mode Toggle Button (Between Reset and Run) */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextSpeed = config.botSpeed === 'fast' ? 'normal' : 'fast';
+              onUpdateConfig({ botSpeed: nextSpeed });
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border active:scale-95 ${
+              config.botSpeed === 'fast'
+                ? 'bg-amber-400 hover:bg-amber-300 text-black border-amber-500 shadow-amber-500/20'
+                : 'bg-neutral-100 hover:bg-neutral-200 text-neutral-800 border-neutral-300'
+            }`}
+            title={
+              config.botSpeed === 'fast'
+                ? 'Fast Mode: Trades after every tick'
+                : 'Normal Mode: Entry digit -> Skip 1 tick -> Exit tick'
+            }
+          >
+            {config.botSpeed === 'fast' ? (
+              <>
+                <Zap className="w-3.5 h-3.5 fill-current text-black" />
+                <span>Fast Mode</span>
+              </>
+            ) : (
+              <>
+                <Clock className="w-3.5 h-3.5 text-neutral-700" />
+                <span>Normal Mode</span>
+              </>
+            )}
+          </button>
+
           {/* Pause / Resume Button (Visible when running) */}
           {isRunning && (
             <button
@@ -242,10 +274,28 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
               </span>
             ) : activeContract ? (
               <span className="text-emerald-700 font-bold">
-                {activeContract.durationUnit === 't' ? (
-                  <>In Progress: Tick {activeContract.duration - (activeContract.ticksRemaining ?? 0)} of {activeContract.duration}t (Entry: {activeContract.entryPrice})</>
+                {activeContract.speedMode === 'normal' && activeContract.stepState === 'skipped' ? (
+                  <>
+                    <span className="text-neutral-600">Entry: {activeContract.entryDigit}</span>
+                    <span className="mx-1">➔</span>
+                    <span className="text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded font-mono">
+                      ⏭ Skipped 1 Tick ({activeContract.skippedTick?.lastDigit ?? '•'})
+                    </span>
+                    <span className="mx-1">➔</span>
+                    <span className="text-emerald-700">Waiting for Exit Digit...</span>
+                  </>
+                ) : activeContract.speedMode === 'normal' ? (
+                  <>
+                    <span className="text-emerald-800">
+                      Entry Digit: {activeContract.entryDigit} (Quote: {activeContract.entryPrice})
+                    </span>
+                    <span className="mx-1">➔</span>
+                    <span className="text-neutral-500">Next tick will be skipped...</span>
+                  </>
                 ) : (
-                  <>In Progress: {activeContract.secondsRemaining ?? 0}s remaining / {activeContract.duration}{activeContract.durationUnit} (Entry: {activeContract.entryPrice})</>
+                  <>
+                    <span className="text-amber-600 font-bold">⚡ Fast:</span> Trade on every tick (Entry: {activeContract.entryDigit} / {activeContract.entryPrice}) ➔ Resolving next tick
+                  </>
                 )}
               </span>
             ) : (

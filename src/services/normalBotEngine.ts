@@ -16,6 +16,9 @@ export interface ActiveContract {
   secondsRemaining?: number;
   startTime: number;
   endTime?: number;
+  speedMode?: 'normal' | 'fast';
+  skippedTick?: Tick;
+  stepState?: 'entry' | 'skipped' | 'resolving';
 }
 
 export class NormalBotExecutor {
@@ -256,10 +259,24 @@ export class NormalBotExecutor {
       const unit = contract.durationUnit || 't';
 
       if (unit === 't') {
+        const isNormalSpeed = (contract.speedMode || this.config.botSpeed || 'normal') === 'normal';
+
+        // In Normal Mode: Entry was registered on previous tick.
+        // If ticksRemaining is 2, THIS tick is the SKIPPED tick!
+        if (isNormalSpeed && (contract.ticksRemaining ?? contract.duration) === 2) {
+          contract.skippedTick = tick;
+          contract.stepState = 'skipped';
+          contract.ticksRemaining = 1;
+          this.notifyContractProgress({ ...contract });
+          return; // Skip this tick! The next tick will be the exit tick.
+        }
+
+        // Advance to exit
         contract.ticksRemaining = (contract.ticksRemaining ?? contract.duration) - 1;
+        contract.stepState = 'resolving';
         this.notifyContractProgress({ ...contract });
 
-        // If contract has finished all ticks, resolve it
+        // If contract has reached 0 remaining ticks, resolve it
         if (contract.ticksRemaining <= 0) {
           this.resolveContract(tick, allTicks, currentMarketId);
         }
@@ -280,53 +297,61 @@ export class NormalBotExecutor {
     }
 
     // 2. No active contract => place a new contract
+    this.openNewContract(tick);
+  }
+
+  // Opens a new contract
+  private openNewContract(entryTick: Tick) {
+    if (!this.isRunning || this.isPaused) return;
+
+    if (this.metrics.totalProfit >= this.config.takeProfit) {
+      this.stop(`Take Profit reached (+${this.metrics.totalProfit.toFixed(2)}$)`);
+      try {
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+      } catch {}
+      return;
+    }
+    if (this.metrics.totalProfit <= -Math.abs(this.config.stopLoss)) {
+      this.stop(`Stop Loss reached (${this.metrics.totalProfit.toFixed(2)}$)`);
+      return;
+    }
+
     const stakeToUse = Math.min(this.balance, Math.max(0.35, this.currentStake));
     if (this.balance < stakeToUse) {
       this.stop('Insufficient balance to place stake');
       return;
     }
 
-    const duration = Math.max(1, Math.round(this.config.duration || 1));
+    const isFast = this.config.botSpeed === 'fast';
     const unit = this.config.durationUnit || 't';
+    // Fast mode: 1 tick duration (trade every tick).
+    // Normal mode: 2 ticks duration (1 tick skip, then 1 tick exit).
+    const duration = isFast
+      ? Math.max(1, Math.round(this.config.duration || 1))
+      : (unit === 't' && (!this.config.duration || this.config.duration === 1) ? 2 : Math.max(1, Math.round(this.config.duration || 1)));
 
-    if (unit === 't' && duration === 1) {
-      // 1-tick contract: open and resolve right on this tick (comparing to previous tick for rise/fall)
-      const prevTick = allTicks.length > 1 ? allTicks[allTicks.length - 2] : tick;
-      this.resolveSingleTickContract(tick, prevTick, stakeToUse, currentMarketId);
-    } else {
-      const nowMs = Date.now();
-      const durationSeconds = unit === 'm' ? duration * 60 : unit === 's' ? duration : 0;
-      const endTime = durationSeconds > 0 ? nowMs + durationSeconds * 1000 : undefined;
+    const nowMs = Date.now();
+    const durationSeconds = unit === 'm' ? duration * 60 : unit === 's' ? duration : 0;
+    const endTime = durationSeconds > 0 ? nowMs + durationSeconds * 1000 : undefined;
 
-      this.activeContract = {
-        id: 'CTR-' + Date.now().toString(36),
-        entryTick: tick,
-        entryPrice: tick.quote,
-        entryDigit: tick.lastDigit,
-        prediction: this.config.prediction,
-        contractType: this.config.contractType,
-        stake: stakeToUse,
-        duration,
-        durationUnit: unit,
-        ticksRemaining: unit === 't' ? duration - 1 : undefined,
-        secondsRemaining: durationSeconds > 0 ? durationSeconds : undefined,
-        startTime: nowMs,
-        endTime,
-      };
-      this.notifyContractProgress({ ...this.activeContract });
-    }
-  }
-
-  // Resolves instantaneous 1-tick contracts
-  private resolveSingleTickContract(
-    exitTick: Tick,
-    entryTick: Tick,
-    stakeUsed: number,
-    marketId: string
-  ) {
-    const { contractType, prediction } = this.config;
-    const won = this.checkWinCondition(contractType, prediction, entryTick, exitTick);
-    this.finalizeTrade(won, stakeUsed, entryTick, exitTick, marketId);
+    this.activeContract = {
+      id: 'CTR-' + Date.now().toString(36),
+      entryTick,
+      entryPrice: entryTick.quote,
+      entryDigit: entryTick.lastDigit,
+      prediction: this.config.prediction,
+      contractType: this.config.contractType,
+      stake: stakeToUse,
+      duration,
+      durationUnit: unit,
+      ticksRemaining: unit === 't' ? duration : undefined,
+      secondsRemaining: durationSeconds > 0 ? durationSeconds : undefined,
+      startTime: nowMs,
+      endTime,
+      speedMode: isFast ? 'fast' : 'normal',
+      stepState: 'entry',
+    };
+    this.notifyContractProgress({ ...this.activeContract });
   }
 
   // Resolves multi-tick contract upon reaching final tick
@@ -343,6 +368,11 @@ export class NormalBotExecutor {
       exitTick
     );
     this.finalizeTrade(won, contract.stake, contract.entryTick, exitTick, marketId);
+
+    // In Fast mode, immediately open the next contract using exitTick as entry so it trades after EVERY tick!
+    if (this.isRunning && !this.isPaused && this.config.botSpeed === 'fast') {
+      this.openNewContract(exitTick);
+    }
   }
 
   private checkWinCondition(

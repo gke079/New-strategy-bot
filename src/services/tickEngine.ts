@@ -13,7 +13,6 @@ export interface DerivAccountInfo {
 
 export const DERIV_SERVERS = [
   { id: 'prod', name: 'Deriv Primary (ws.derivws.com)', url: 'wss://ws.derivws.com/websockets/v3' },
-  { id: 'standard', name: 'Deriv Standard (ws.deriv.com)', url: 'wss://ws.deriv.com/websockets/v3' },
   { id: 'blue', name: 'Deriv Blue (blue.derivws.com)', url: 'wss://blue.derivws.com/websockets/v3' },
   { id: 'green', name: 'Deriv Green (green.derivws.com)', url: 'wss://green.derivws.com/websockets/v3' },
   { id: 'red', name: 'Deriv Red (red.derivws.com)', url: 'wss://red.derivws.com/websockets/v3' },
@@ -28,6 +27,8 @@ export class TickStreamEngine {
   private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
   private accountListeners: Set<(account: DerivAccountInfo | null) => void> = new Set();
   private authErrorListeners: Set<(error: string | null) => void> = new Set();
+  private liveFeedListeners: Set<(isLive: boolean) => void> = new Set();
+  private isLiveFeed: boolean = false;
   private currentPrice: number = 0;
   private currentPipSize: number = 2;
   private status: ConnectionStatus = 'connecting';
@@ -47,7 +48,6 @@ export class TickStreamEngine {
 
   private endpoints: string[] = [
     'wss://ws.derivws.com/websockets/v3',
-    'wss://ws.deriv.com/websockets/v3',
     'wss://blue.derivws.com/websockets/v3',
     'wss://green.derivws.com/websockets/v3',
     'wss://red.derivws.com/websockets/v3',
@@ -58,8 +58,20 @@ export class TickStreamEngine {
   constructor(initialMarket: Market, initialWindow: number = 1000) {
     this.currentMarket = initialMarket;
     this.ticksWindow = initialWindow;
-    this.currentPrice = initialMarket.basePrice;
     this.currentPipSize = initialMarket.decimals;
+
+    // Load any user-calibrated spot price for this market
+    let startPrice = initialMarket.basePrice;
+    try {
+      const savedCalibrated = localStorage.getItem(`tickedge_calibrated_price_${initialMarket.id}`);
+      if (savedCalibrated) {
+        const parsed = parseFloat(savedCalibrated);
+        if (!isNaN(parsed) && parsed > 0) {
+          startPrice = parsed;
+        }
+      }
+    } catch {}
+    this.currentPrice = startPrice;
 
     // Check localStorage for saved Deriv credentials
     try {
@@ -73,10 +85,10 @@ export class TickStreamEngine {
       }
     } catch {}
 
-    // 1. Seed baseline ticks immediately so the UI is active and never blank
-    this.seedBaselineTicks(Math.min(this.ticksWindow, 100));
+    // 1. Seed baseline ticks immediately around the start price so the UI is active and never blank
+    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), startPrice);
 
-    // 2. Start the live ticker loop so ticks are live from the very first second
+    // 2. Start the live ticker loop so ticks are dynamic from the very first second
     this.startLiveTicker();
 
     // 3. Connect to Deriv Live WebSocket
@@ -87,11 +99,25 @@ export class TickStreamEngine {
     if (this.currentMarket.id === market.id) return;
     this.currentMarket = market;
     this.currentPipSize = market.decimals;
-    this.currentPrice = market.basePrice;
     this.lastRealTickEpoch = 0;
+    this.isLiveFeed = false;
+    this.notifyLiveFeed();
+
+    // Load calibrated price if available for this market
+    let startPrice = market.basePrice;
+    try {
+      const savedCalibrated = localStorage.getItem(`tickedge_calibrated_price_${market.id}`);
+      if (savedCalibrated) {
+        const parsed = parseFloat(savedCalibrated);
+        if (!isNaN(parsed) && parsed > 0) {
+          startPrice = parsed;
+        }
+      }
+    } catch {}
+    this.currentPrice = startPrice;
 
     // Seed baseline ticks for new market
-    this.seedBaselineTicks(Math.min(this.ticksWindow, 100));
+    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), startPrice);
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
@@ -169,6 +195,39 @@ export class TickStreamEngine {
     return () => this.authErrorListeners.delete(listener);
   }
 
+  public isLive(): boolean {
+    return this.isLiveFeed;
+  }
+
+  public onLiveFeedChange(listener: (isLive: boolean) => void): () => void {
+    this.liveFeedListeners.add(listener);
+    listener(this.isLiveFeed);
+    return () => this.liveFeedListeners.delete(listener);
+  }
+
+  private notifyLiveFeed() {
+    this.liveFeedListeners.forEach((listener) => listener(this.isLiveFeed));
+  }
+
+  public calibratePrice(newPrice: number) {
+    if (isNaN(newPrice) || newPrice <= 0) return;
+    this.currentPrice = newPrice;
+    try {
+      localStorage.setItem(`tickedge_calibrated_price_${this.currentMarket.id}`, String(newPrice));
+    } catch {}
+
+    // Reseed baseline ticks smoothly around this exact spot price
+    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), newPrice);
+  }
+
+  public resetPriceCalibration() {
+    try {
+      localStorage.removeItem(`tickedge_calibrated_price_${this.currentMarket.id}`);
+    } catch {}
+    this.currentPrice = this.currentMarket.basePrice;
+    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), this.currentPrice);
+  }
+
   public getAppId(): string {
     return this.appId;
   }
@@ -234,7 +293,7 @@ export class TickStreamEngine {
     this.setStatus('connecting');
 
     const baseEndpoint = this.endpoints[this.currentEndpointIndex % this.endpoints.length];
-    const wsUrl = `${baseEndpoint}?app_id=${encodeURIComponent(this.appId)}&l=EN`;
+    const wsUrl = `${baseEndpoint}?app_id=${encodeURIComponent(this.appId)}`;
 
     try {
       this.ws = new WebSocket(wsUrl);
@@ -275,6 +334,8 @@ export class TickStreamEngine {
         if (this.isDestroyed) return;
         console.warn(`Deriv WS closed (code: ${event.code}, reason: ${event.reason || 'none'}).`);
         this.setStatus('disconnected');
+        this.isLiveFeed = false;
+        this.notifyLiveFeed();
         this.reconnectAttempts++;
         // Rotate to next endpoint after 2 connection attempts
         if (this.reconnectAttempts >= 2) {
@@ -285,6 +346,8 @@ export class TickStreamEngine {
     } catch (err) {
       console.warn('Failed to initialize Deriv WebSocket:', err);
       this.setStatus('disconnected');
+      this.isLiveFeed = false;
+      this.notifyLiveFeed();
       this.scheduleReconnect();
     }
   }
@@ -298,7 +361,7 @@ export class TickStreamEngine {
     } catch {}
 
     try {
-      // 2. Official Deriv ticks_history request with subscribe: 1 for immediate historical data followed by real-time updates
+      // 2. Request historical ticks AND subscribe to live ticks atomically
       this.ws.send(
         JSON.stringify({
           ticks_history: this.currentMarket.id,
@@ -311,20 +374,6 @@ export class TickStreamEngine {
     } catch (err) {
       console.warn('Failed to send ticks_history subscription:', err);
     }
-
-    // Also send explicit ticks subscription as fallback in case ticks_history doesn't stream
-    setTimeout(() => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN && Date.now() - this.lastRealTickEpoch > 2500) {
-        try {
-          this.ws.send(
-            JSON.stringify({
-              ticks: this.currentMarket.id,
-              subscribe: 1,
-            })
-          );
-        } catch {}
-      }
-    }, 2000);
   }
 
   private handleMessage(rawData: string) {
@@ -404,6 +453,10 @@ export class TickStreamEngine {
           this.ticks = newTicks.slice(-this.ticksWindow);
           this.currentPrice = this.ticks[this.ticks.length - 1].quote;
           this.lastRealTickEpoch = Date.now();
+          if (!this.isLiveFeed) {
+            this.isLiveFeed = true;
+            this.notifyLiveFeed();
+          }
           this.setStatus('connected');
           this.notifyAll();
         }
@@ -442,6 +495,10 @@ export class TickStreamEngine {
 
         // Real live tick received from Deriv
         this.lastRealTickEpoch = Date.now();
+        if (!this.isLiveFeed) {
+          this.isLiveFeed = true;
+          this.notifyLiveFeed();
+        }
         this.setStatus('connected');
         this.addTick(newTick);
       }
@@ -511,13 +568,13 @@ export class TickStreamEngine {
   }
 
   /**
-   * Generates baseline initial ticks around the market's official basePrice
+   * Generates baseline initial ticks around the market's calibrated or basePrice
    * so that the UI is active, responsive, and shows accurate formatting while
    * the live Deriv WebSocket connection handshakes.
    */
-  private seedBaselineTicks(count: number = 100) {
+  private seedBaselineTicks(count: number = 100, customBasePrice?: number) {
     const ticks: Tick[] = [];
-    let price = this.currentMarket.basePrice;
+    let price = customBasePrice !== undefined ? customBasePrice : (this.currentPrice || this.currentMarket.basePrice);
     const decimals = this.currentMarket.decimals;
     const pip = this.currentMarket.pipSize;
     const now = Date.now();
@@ -549,10 +606,10 @@ export class TickStreamEngine {
 
   /**
    * Continuous live ticker loop:
-   * Guarantees that ticks are LIVE at all times!
-   * If real Deriv ticks are actively streaming in, they take priority.
-   * If real Deriv ticks haven't arrived within 1500ms (connecting, network latency, or slow market),
-   * a live tick is seamlessly emitted to ensure the user ALWAYS sees live streaming ticks.
+   * Guarantees ticks are dynamic and never dormant!
+   * If real Deriv ticks are actively streaming in, they take priority (no synthetic interference).
+   * If real Deriv ticks haven't arrived within the expected interval (handshaking, delay, or offline),
+   * live ticks are emitted so the price, digit frequency, and bot evaluation stay active!
    */
   private startLiveTicker() {
     if (this.liveTickerInterval) {
@@ -563,12 +620,20 @@ export class TickStreamEngine {
       if (this.isDestroyed) return;
 
       const now = Date.now();
-      // If we have received a real tick from Deriv within the last 1500ms, let Deriv stream naturally
-      if (now - this.lastRealTickEpoch < 1500) {
+      // If we received a real Deriv tick within the last 3500ms, let Deriv stream naturally without interference
+      if (this.lastRealTickEpoch > 0 && (now - this.lastRealTickEpoch) < 3500) {
+        if (!this.isLiveFeed) {
+          this.isLiveFeed = true;
+          this.notifyLiveFeed();
+        }
         return;
       }
 
-      // No real tick received recently: emit a live tick so the stream never freezes
+      // No real tick received within expected time: mark as simulated/calibrated and emit a tick so the stream is NEVER dormant!
+      if (this.isLiveFeed) {
+        this.isLiveFeed = false;
+        this.notifyLiveFeed();
+      }
       this.generateLiveTick();
     }, this.tickSpeedMs);
   }

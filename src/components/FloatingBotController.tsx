@@ -13,7 +13,8 @@ import {
   TrendingUp, 
   TrendingDown,
   Layers,
-  Sparkles
+  Sparkles,
+  Clock,
 } from 'lucide-react';
 
 export interface FloatingBotControllerProps {
@@ -31,6 +32,7 @@ export interface FloatingBotControllerProps {
   onPauseNormalBot: () => void;
   onResumeNormalBot: () => void;
   onResetNormalBot?: () => void;
+  onToggleNormalBotSpeed?: () => void;
   // Strategy Bot
   strategyBotRunning: boolean;
   strategyBotPaused: boolean;
@@ -41,6 +43,7 @@ export interface FloatingBotControllerProps {
   onPauseStrategyBot: () => void;
   onResumeStrategyBot: () => void;
   onResetStrategyBot?: () => void;
+  onToggleStrategyBotSpeed?: () => void;
   // Unified Reset
   onReset?: () => void;
   // Navigation
@@ -72,6 +75,8 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
   onResumeStrategyBot,
   onResetNormalBot,
   onResetStrategyBot,
+  onToggleNormalBotSpeed,
+  onToggleStrategyBotSpeed,
   onReset,
   onNavigateToBotSettings,
   currentMarketName,
@@ -87,6 +92,19 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
   const stake = isNormal ? normalBotStake : strategyBotConfig.stake;
   const profit = metrics.totalProfit;
   const isProfitable = profit >= 0;
+
+  const currentSpeed = isNormal
+    ? (normalBotConfig.botSpeed || 'normal')
+    : (strategyBotConfig.botSpeed || 'normal');
+  const isFast = currentSpeed === 'fast';
+
+  const handleToggleSpeed = () => {
+    if (isNormal && onToggleNormalBotSpeed) {
+      onToggleNormalBotSpeed();
+    } else if (!isNormal && onToggleStrategyBotSpeed) {
+      onToggleStrategyBotSpeed();
+    }
+  };
 
   const handleStart = () => {
     if (isNormal) {
@@ -272,6 +290,30 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                   <span>Reset</span>
                 </button>
 
+                {/* Speed Mode Toggle (Between Reset and Run) */}
+                <button
+                  type="button"
+                  onClick={handleToggleSpeed}
+                  title={isFast ? 'Fast Mode: Trades every tick' : 'Normal Mode: Skips 1 tick between entry & exit'}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all active:scale-95 border ${
+                    isFast
+                      ? 'bg-amber-400 hover:bg-amber-300 text-black border-amber-500 shadow-amber-500/20'
+                      : 'bg-white hover:bg-neutral-100 text-neutral-800 border-neutral-300'
+                  }`}
+                >
+                  {isFast ? (
+                    <>
+                      <Zap className="w-3 h-3 fill-current text-black" />
+                      <span>Fast</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="w-3 h-3 text-neutral-700" />
+                      <span>Normal</span>
+                    </>
+                  )}
+                </button>
+
                 {/* Run / Stop Button */}
                 {!isRunning ? (
                   <button
@@ -400,37 +442,61 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                 </button>
               </div>
 
-              {/* Control Action Buttons Row: Reset (just before Run), Run/Stop, Pause/Resume */}
-              <div className="grid grid-cols-3 gap-2 pt-1">
-                {/* 0. RESET BUTTON (placed just before Run) */}
+              {/* Control Action Buttons Row: Reset, Speed Toggle, Run/Stop, Pause/Resume */}
+              <div className="grid grid-cols-4 gap-2 pt-1">
+                {/* 0. RESET BUTTON (placed just before Speed & Run) */}
                 <button
                   type="button"
                   onClick={handleReset}
                   title="Reset bot metrics & martingale step"
-                  className="flex items-center justify-center gap-1.5 py-2.5 px-2 sm:px-3 bg-white hover:bg-neutral-100 text-neutral-900 border border-neutral-300 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
+                  className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-white hover:bg-neutral-100 text-neutral-900 border border-neutral-300 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
                 >
-                  <RotateCcw className="w-4 h-4 text-neutral-700" />
+                  <RotateCcw className="w-3.5 h-3.5 text-neutral-700" />
                   <span>Reset</span>
                 </button>
 
-                {/* 1. RUN / STOP BUTTON */}
+                {/* 1. SPEED TOGGLE BUTTON (Between Reset and Run) */}
+                <button
+                  type="button"
+                  onClick={handleToggleSpeed}
+                  title={isFast ? 'Fast Mode: Trades every tick' : 'Normal Mode: Skips 1 tick between entry & exit'}
+                  className={`flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98] border ${
+                    isFast
+                      ? 'bg-amber-400 hover:bg-amber-300 text-black border-amber-500 shadow-amber-500/20'
+                      : 'bg-white hover:bg-neutral-100 text-neutral-900 border-neutral-300'
+                  }`}
+                >
+                  {isFast ? (
+                    <>
+                      <Zap className="w-3.5 h-3.5 fill-current text-black" />
+                      <span>Fast</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="w-3.5 h-3.5 text-neutral-700" />
+                      <span>Normal</span>
+                    </>
+                  )}
+                </button>
+
+                {/* 2. RUN / STOP BUTTON */}
                 {!isRunning ? (
                   <button
                     type="button"
                     onClick={handleStart}
-                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 sm:px-3 bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00] rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
+                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00] rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
                   >
-                    <Play className="w-4 h-4 fill-current" />
-                    <span>Run {isNormal ? 'Normal' : 'Strategy'}</span>
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Run</span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={handleStop}
-                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 sm:px-3 bg-[#FF0000] hover:bg-[#e60000] text-white border border-[#cc0000] rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
+                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-[#FF0000] hover:bg-[#e60000] text-white border border-[#cc0000] rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
                   >
-                    <Square className="w-4 h-4 fill-current" />
-                    <span>Stop {isNormal ? 'Normal' : 'Strategy'}</span>
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>Stop</span>
                   </button>
                 )}
 

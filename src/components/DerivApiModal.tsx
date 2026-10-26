@@ -12,6 +12,7 @@ import {
   Lock,
   Server,
   ArrowRight,
+  Copy,
 } from 'lucide-react';
 import { ConnectionStatus, DerivAccountInfo, DERIV_SERVERS } from '../services/tickEngine';
 
@@ -61,6 +62,7 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
   const [activeTab, setActiveTab] = useState<'connection' | 'guide'>('connection');
   const [isApplying, setIsApplying] = useState<boolean>(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState<boolean>(false);
 
   // Sync state whenever modal opens
   useEffect(() => {
@@ -348,6 +350,55 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
                       </option>
                     ))}
                   </select>
+                </div>
+
+                {/* Deriv App Registration & Redirect URL Helper */}
+                <div className="p-3 rounded-lg bg-[#111827] border border-slate-800 text-xs text-slate-300 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white flex items-center gap-1.5 text-[11px]">
+                      <Info className="w-3.5 h-3.5 text-[#00e599]" />
+                      <span>Redirect URL for Registering App ID</span>
+                    </span>
+                    <a
+                      href="https://developers.deriv.com/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[#00e599] hover:underline flex items-center gap-0.5 text-[10px]"
+                    >
+                      <span>developers.deriv.com</span>
+                      <ExternalLink className="w-2.5 h-2.5" />
+                    </a>
+                  </div>
+                  <p className="text-slate-400 text-[10px] leading-relaxed">
+                    When registering your app on the Deriv Developer Portal to obtain an App ID, enter this exact Redirect URL:
+                  </p>
+                  <div className="flex items-center gap-1.5 bg-[#090d16] p-1.5 rounded border border-slate-800">
+                    <code className="text-[#00e599] font-mono text-[10px] truncate flex-1 select-all">
+                      {typeof window !== 'undefined' ? window.location.origin : 'https://ais-pre-lnovbjhru2exv7uyjbvykq-71531466500.europe-west3.run.app'}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = typeof window !== 'undefined' ? window.location.origin : 'https://ais-pre-lnovbjhru2exv7uyjbvykq-71531466500.europe-west3.run.app';
+                        navigator.clipboard.writeText(url);
+                        setCopiedUrl(true);
+                        setTimeout(() => setCopiedUrl(false), 2000);
+                      }}
+                      className="px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-white rounded text-[10px] font-medium transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedUrl ? (
+                        <>
+                          <Check className="w-2.5 h-2.5 text-[#00e599]" />
+                          <span>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-2.5 h-2.5 text-slate-300" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* App ID Input */}

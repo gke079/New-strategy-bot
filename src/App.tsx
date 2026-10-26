@@ -30,6 +30,7 @@ export default function App() {
   const [ticks, setTicks] = useState<Tick[]>([]);
   const [currentTick, setCurrentTick] = useState<Tick | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [isLiveFeed, setIsLiveFeed] = useState<boolean>(false);
   const [tickSpeedMs, setTickSpeedMs] = useState<number>(1000);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -311,6 +312,11 @@ export default function App() {
       setDerivAuthError(err);
     });
 
+    // Listen to Live Deriv Feed status (real ticks vs calibrated)
+    const unsubLiveFeed = engine.onLiveFeedChange((isLive) => {
+      setIsLiveFeed(isLive);
+    });
+
     // Subscribe to tick stream
     const unsubTicks = engine.subscribe((newTick, allTicks) => {
       setCurrentTick(newTick);
@@ -366,6 +372,7 @@ export default function App() {
     return () => {
       unsubTicks();
       unsubStatus();
+      unsubLiveFeed();
       unsubAccount();
       unsubAuthError();
       unsubDigitsTrade();
@@ -380,6 +387,19 @@ export default function App() {
       engine.destroy();
     };
   }, []);
+
+  // Spot price calibration handlers
+  const handleCalibratePrice = (newPrice: number) => {
+    if (engineRef.current) {
+      engineRef.current.calibratePrice(newPrice);
+    }
+  };
+
+  const handleResetPriceCalibration = () => {
+    if (engineRef.current) {
+      engineRef.current.resetPriceCalibration();
+    }
+  };
 
   // Sync market changes
   const handleSelectMarket = (market: Market) => {
@@ -568,6 +588,16 @@ export default function App() {
     handleResetNormalBotStake();
   };
 
+  const handleToggleNormalBotSpeed = () => {
+    const nextSpeed = normalBotConfig.botSpeed === 'fast' ? 'normal' : 'fast';
+    handleUpdateNormalBotConfig({ botSpeed: nextSpeed });
+  };
+
+  const handleToggleStrategyBotSpeed = () => {
+    const nextSpeed = chartsBotConfig.botSpeed === 'fast' ? 'normal' : 'fast';
+    handleUpdateChartsBotConfig({ botSpeed: nextSpeed });
+  };
+
   const handleResetStrategyBot = () => {
     handleResetChartsBotStats();
     handleResetChartsBotAfterTrade();
@@ -666,7 +696,14 @@ export default function App() {
             />
 
             {/* Current Tick / Price banner */}
-            <TickCard currentTick={currentTick} market={selectedMarket} />
+            <TickCard
+              currentTick={currentTick}
+              market={selectedMarket}
+              isLiveFeed={isLiveFeed}
+              onCalibratePrice={handleCalibratePrice}
+              onResetPriceCalibration={handleResetPriceCalibration}
+              onOpenApiModal={() => setIsApiModalOpen(true)}
+            />
 
             {/* Ticks window row with editable input & count badge matching screenshot */}
             <TicksWindowControl
@@ -860,6 +897,7 @@ export default function App() {
           onPauseNormalBot={handlePauseNormalBot}
           onResumeNormalBot={handleResumeNormalBot}
           onResetNormalBot={handleResetNormalBot}
+          onToggleNormalBotSpeed={handleToggleNormalBotSpeed}
           strategyBotRunning={chartsBotRunning}
           strategyBotPaused={chartsBotPaused}
           strategyBotMetrics={chartsBotMetrics}
@@ -869,6 +907,7 @@ export default function App() {
           onPauseStrategyBot={handlePauseChartsBot}
           onResumeStrategyBot={handleResumeChartsBot}
           onResetStrategyBot={handleResetStrategyBot}
+          onToggleStrategyBotSpeed={handleToggleStrategyBotSpeed}
           onNavigateToBotSettings={(bot) => {
             setBotsTabSubView(bot);
             setActiveTab('bots');
