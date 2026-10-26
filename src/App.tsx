@@ -820,6 +820,7 @@ export default function App() {
       marketId: req.market.id,
       contractType: req.contractType,
       prediction: resolvedPrediction,
+      signalEntryTrigger: req.signalEntryTrigger,
       stake: req.stake,
       initialStake: req.stake,
       duration: 1,
@@ -909,9 +910,7 @@ export default function App() {
       <main
         className={`flex-1 ${
           activeTab === 'builder' ? 'max-w-6xl' : 'max-w-4xl'
-        } w-full mx-auto px-4 py-4 sm:py-6 flex flex-col gap-4 ${
-          activeTab === 'digits' ? 'pb-40 sm:pb-44' : 'pb-20'
-        }`}
+        } w-full mx-auto px-4 py-4 sm:py-6 flex flex-col gap-4 pb-48 sm:pb-52`}
       >
         {/* Prominent Deriv OAuth Login Banner if not logged in */}
         {!userAccount.isLoggedIn && (
@@ -1181,44 +1180,42 @@ export default function App() {
         )}
       </main>
  
-      {/* Floating Bot Controller on Digits Tab */}
-      {activeTab === 'digits' && (
-        <FloatingBotController
-          selectedBot={floatingBotSelection}
-          onSelectBot={(bot) => {
-            setFloatingBotSelection(bot);
-            setBotsTabSubView(bot);
-          }}
-          normalBotRunning={normalBotRunning}
-          normalBotPaused={normalBotPaused}
-          normalBotStake={normalBotStake}
-          normalBotStep={normalBotStep}
-          normalBotMetrics={normalBotMetrics}
-          normalBotConfig={normalBotConfig}
-          onStartNormalBot={handleStartNormalBot}
-          onStopNormalBot={handleStopNormalBot}
-          onPauseNormalBot={handlePauseNormalBot}
-          onResumeNormalBot={handleResumeNormalBot}
-          onResetNormalBot={handleResetNormalBot}
-          onToggleNormalBotSpeed={handleToggleNormalBotSpeed}
-          strategyBotRunning={chartsBotRunning}
-          strategyBotPaused={chartsBotPaused}
-          strategyBotMetrics={chartsBotMetrics}
-          strategyBotConfig={chartsBotConfig}
-          onStartStrategyBot={handleStartChartsBot}
-          onStopStrategyBot={handleStopChartsBot}
-          onPauseStrategyBot={handlePauseChartsBot}
-          onResumeStrategyBot={handleResumeChartsBot}
-          onResetStrategyBot={handleResetStrategyBot}
-          onToggleStrategyBotSpeed={handleToggleStrategyBotSpeed}
-          onNavigateToBotSettings={(bot) => {
-            setBotsTabSubView(bot);
-            setActiveTab('bots');
-          }}
-          currentMarketName={selectedMarket.symbol || selectedMarket.name}
-          theme={theme}
-        />
-      )}
+      {/* Floating Bot Controller across ALL Tabs */}
+      <FloatingBotController
+        selectedBot={floatingBotSelection}
+        onSelectBot={(bot) => {
+          setFloatingBotSelection(bot);
+          setBotsTabSubView(bot);
+        }}
+        normalBotRunning={normalBotRunning}
+        normalBotPaused={normalBotPaused}
+        normalBotStake={normalBotStake}
+        normalBotStep={normalBotStep}
+        normalBotMetrics={normalBotMetrics}
+        normalBotConfig={normalBotConfig}
+        onStartNormalBot={handleStartNormalBot}
+        onStopNormalBot={handleStopNormalBot}
+        onPauseNormalBot={handlePauseNormalBot}
+        onResumeNormalBot={handleResumeNormalBot}
+        onResetNormalBot={handleResetNormalBot}
+        onToggleNormalBotSpeed={handleToggleNormalBotSpeed}
+        strategyBotRunning={chartsBotRunning}
+        strategyBotPaused={chartsBotPaused}
+        strategyBotMetrics={chartsBotMetrics}
+        strategyBotConfig={chartsBotConfig}
+        onStartStrategyBot={handleStartChartsBot}
+        onStopStrategyBot={handleStopChartsBot}
+        onPauseStrategyBot={handlePauseChartsBot}
+        onResumeStrategyBot={handleResumeChartsBot}
+        onResetStrategyBot={handleResetStrategyBot}
+        onToggleStrategyBotSpeed={handleToggleStrategyBotSpeed}
+        onNavigateToBotSettings={(bot) => {
+          setBotsTabSubView(bot);
+          setActiveTab('bots');
+        }}
+        currentMarketName={selectedMarket.symbol || selectedMarket.name}
+        theme={theme}
+      />
 
       {/* Bottom Navigation with independent bot indicators */}
       <BottomNavigation

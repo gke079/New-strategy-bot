@@ -242,6 +242,42 @@ export class NormalBotExecutor {
     }
   }
 
+  /**
+   * Checks whether an optional Signal entry confirmation sequence is satisfied on allTicks:
+   * - 'even_after_2_odd_confirm': >= 2 consecutive Odd digits immediately followed by 1 Even digit confirmation
+   * - 'odd_after_2_even_confirm': >= 2 consecutive Even digits immediately followed by 1 Odd digit confirmation
+   */
+  public isEntryTriggerMet(allTicks: Tick[]): boolean {
+    const trigger = this.config.signalEntryTrigger;
+    if (!trigger || trigger === 'immediate') return true;
+    if (allTicks.length < 3) return false;
+
+    const lastIdx = allTicks.length - 1;
+    const confirmDigit = allTicks[lastIdx].lastDigit;
+
+    if (trigger === 'even_after_2_odd_confirm') {
+      if (confirmDigit % 2 !== 0) return false; // Latest tick must be Even confirmation
+      let oddStreak = 0;
+      for (let i = lastIdx - 1; i >= 0; i--) {
+        if (allTicks[i].lastDigit % 2 !== 0) oddStreak++;
+        else break;
+      }
+      return oddStreak >= 2;
+    }
+
+    if (trigger === 'odd_after_2_even_confirm') {
+      if (confirmDigit % 2 === 0) return false; // Latest tick must be Odd confirmation
+      let evenStreak = 0;
+      for (let i = lastIdx - 1; i >= 0; i--) {
+        if (allTicks[i].lastDigit % 2 === 0) evenStreak++;
+        else break;
+      }
+      return evenStreak >= 2;
+    }
+
+    return true;
+  }
+
   // Evaluates every incoming tick
   public evaluateTick(tick: Tick, allTicks: Tick[], currentMarketId: string) {
     if (!this.isRunning || this.isPaused) return;
@@ -303,7 +339,10 @@ export class NormalBotExecutor {
       }
     }
 
-    // 2. No active contract => place a new contract
+    // 2. No active contract => place a new contract once entry trigger (if any) is met
+    if (!this.isEntryTriggerMet(allTicks)) {
+      return;
+    }
     this.openNewContract(tick);
   }
 
@@ -376,8 +415,13 @@ export class NormalBotExecutor {
     );
     this.finalizeTrade(won, contract.stake, contract.entryTick, exitTick, marketId);
 
-    // In Fast mode, immediately open the next contract using exitTick as entry so it trades after EVERY tick!
-    if (this.isRunning && !this.isPaused && this.config.botSpeed === 'fast') {
+    // In Fast mode, immediately open the next contract using exitTick as entry if trigger is met
+    if (
+      this.isRunning &&
+      !this.isPaused &&
+      this.config.botSpeed === 'fast' &&
+      this.isEntryTriggerMet(_allTicks)
+    ) {
       this.openNewContract(exitTick);
     }
   }

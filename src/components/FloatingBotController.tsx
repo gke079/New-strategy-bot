@@ -15,6 +15,8 @@ import {
   Layers,
   Sparkles,
   Clock,
+  Bot,
+  Minimize2,
 } from 'lucide-react';
 
 export interface FloatingBotControllerProps {
@@ -82,8 +84,8 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
   currentMarketName,
   theme,
 }) => {
-  const isLight = theme === 'light';
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
+  const [isDockedOrb, setIsDockedOrb] = useState<boolean>(false);
 
   const isNormal = selectedBot === 'normal';
   const isRunning = isNormal ? normalBotRunning : strategyBotRunning;
@@ -148,65 +150,113 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
     }
   };
 
+  if (isDockedOrb) {
+    return (
+      <div className="fixed bottom-20 right-4 z-40 pointer-events-auto">
+        <button
+          type="button"
+          onClick={() => setIsDockedOrb(false)}
+          title="Open Floating Robot Controller"
+          className="flex items-center gap-2.5 pl-3 pr-3.5 py-2.5 rounded-full bg-white hover:bg-sky-50 border-2 border-[#00FFFF] shadow-2xl text-neutral-900 cursor-pointer transition-all active:scale-95"
+        >
+          <span className="relative flex items-center justify-center w-8 h-8 rounded-full bg-[#00FFFF] text-slate-950 shadow-xs">
+            <Bot className="w-4 h-4 stroke-[2.5]" />
+            {isRunning && (
+              <span
+                className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border border-white ${
+                  isPaused ? 'bg-amber-400' : 'bg-emerald-500 animate-ping'
+                }`}
+              />
+            )}
+          </span>
+          <div className="flex flex-col items-start leading-tight">
+            <span className="text-[11px] font-extrabold text-neutral-950">
+              {isNormal ? 'Normal Bot' : 'Strategy Bot'}
+            </span>
+            <span
+              className={`font-mono tabular-nums text-[11px] font-bold ${
+                isProfitable ? 'text-emerald-600' : 'text-rose-600'
+              }`}
+            >
+              {isRunning ? (isPaused ? 'Paused · ' : 'Live · ') : ''}
+              {isProfitable ? '+' : ''}${profit.toFixed(2)}
+            </span>
+          </div>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-30 pointer-events-none px-3 sm:px-4">
+    <div className="fixed bottom-16 sm:bottom-20 left-0 right-0 z-40 pointer-events-none px-3 sm:px-4">
       <div className="max-w-xl mx-auto pointer-events-auto">
         <div
           className="bg-white border border-neutral-300 text-neutral-900 shadow-2xl rounded-2xl overflow-hidden transition-all duration-300"
         >
-          {/* Header Row: Bot Selector & Collapse Button (White box header) */}
+          {/* Header Row: Robot Icon, Bot Selector & Collapse Controls */}
           <div
-            className="flex items-center justify-between px-3 py-2 border-b bg-neutral-50 border-neutral-200 transition-colors"
+            className="flex items-center justify-between px-3 py-2 border-b bg-neutral-50 border-neutral-200 transition-colors gap-2"
           >
-            {/* Bot Segmented Selector */}
-            <div
-              className="flex items-center p-0.5 rounded-xl border bg-neutral-100 border-neutral-300"
-            >
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onSelectBot('normal')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  isNormal
-                    ? 'bg-[#00FFFF] text-slate-950 font-black shadow-sm shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
-                    : 'text-neutral-600 hover:text-black'
-                }`}
+                onClick={() => setIsDockedOrb(true)}
+                title="Dock to Floating Robot Icon"
+                className="w-7 h-7 rounded-lg bg-[#00FFFF] text-slate-950 flex items-center justify-center shrink-0 shadow-2xs cursor-pointer hover:opacity-90 transition-opacity"
               >
-                <Zap className="w-3.5 h-3.5" />
-                <span>Normal Bot</span>
-                {normalBotRunning && (
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      normalBotPaused ? 'bg-amber-400' : 'bg-emerald-500 animate-ping'
-                    }`}
-                  />
-                )}
+                <Bot className="w-4 h-4 stroke-[2.25]" />
               </button>
 
-              <button
-                type="button"
-                onClick={() => onSelectBot('strategy')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  !isNormal
-                    ? 'bg-[#00FFFF] text-slate-950 font-black shadow-sm shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
-                    : 'text-neutral-600 hover:text-black'
-                }`}
+              {/* Bot Segmented Selector */}
+              <div
+                className="flex items-center p-0.5 rounded-xl border bg-neutral-100 border-neutral-300"
               >
-                <Cpu className="w-3.5 h-3.5" />
-                <span>Strategy Bot</span>
-                {strategyBotRunning && (
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      strategyBotPaused ? 'bg-amber-400' : 'bg-emerald-500 animate-ping'
-                    }`}
-                  />
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onSelectBot('normal')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    isNormal
+                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-sm shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
+                      : 'text-neutral-600 hover:text-black'
+                  }`}
+                >
+                  <Zap className="w-3.5 h-3.5" />
+                  <span>Normal Bot</span>
+                  {normalBotRunning && (
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        normalBotPaused ? 'bg-amber-400' : 'bg-emerald-500 animate-ping'
+                      }`}
+                    />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onSelectBot('strategy')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    !isNormal
+                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-sm shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
+                      : 'text-neutral-600 hover:text-black'
+                  }`}
+                >
+                  <Cpu className="w-3.5 h-3.5" />
+                  <span>Strategy Bot</span>
+                  {strategyBotRunning && (
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        strategyBotPaused ? 'bg-amber-400' : 'bg-emerald-500 animate-ping'
+                      }`}
+                    />
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* Status Pill & Collapse Toggle */}
-            <div className="flex items-center gap-2">
+            {/* Status & Collapse / Dock Controls */}
+            <div className="flex items-center gap-1.5">
               <span
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                   isRunning
                     ? isPaused
                       ? 'bg-amber-100 text-amber-800 border border-amber-300'
@@ -236,18 +286,28 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                 <Settings2 className="w-3.5 h-3.5" />
               </button>
 
-              {/* Minimize / Expand Button */}
+              {/* Minimize / Expand Bar Button */}
               <button
                 type="button"
                 onClick={() => setIsCollapsed(!isCollapsed)}
                 className="p-1.5 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 hover:text-black border border-neutral-300 transition-all cursor-pointer"
-                title={isCollapsed ? 'Expand Floating Bot Controller' : 'Collapse Floating Bot Controller'}
+                title={isCollapsed ? 'Expand Floating Robot' : 'Compact Bar'}
               >
                 {isCollapsed ? (
                   <ChevronUp className="w-3.5 h-3.5" />
                 ) : (
                   <ChevronDown className="w-3.5 h-3.5" />
                 )}
+              </button>
+
+              {/* Dock to Floating Robot Corner Icon */}
+              <button
+                type="button"
+                onClick={() => setIsDockedOrb(true)}
+                className="p-1.5 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 transition-all cursor-pointer"
+                title="Minimize to Floating Robot Icon"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
@@ -328,7 +388,7 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                   <button
                     type="button"
                     onClick={handleStop}
-                    className="flex items-center gap-1 px-3 py-1 bg-[#FF0000] hover:bg-[#e60000] text-white border border-[#cc0000] rounded-lg text-xs font-black shadow-sm cursor-pointer transition-all active:scale-95"
+                    className="flex items-center gap-1 px-3 py-1 bg-[#FF0000] hover:bg-[#e60000] text-rose-50 border border-[#cc0000] rounded-lg text-xs font-black shadow-sm cursor-pointer transition-all active:scale-95"
                   >
                     <Square className="w-3 h-3 fill-current" />
                     <span>Stop</span>
@@ -345,7 +405,7 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                       ? 'bg-neutral-100 text-neutral-400 border border-neutral-200 cursor-not-allowed'
                       : isPaused
                       ? 'bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00] shadow-sm'
-                      : 'bg-[#000000] hover:bg-neutral-900 text-white border border-neutral-800 shadow-sm'
+                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-600 shadow-sm'
                   }`}
                 >
                   {isPaused ? (
@@ -493,7 +553,7 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                   <button
                     type="button"
                     onClick={handleStop}
-                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-[#FF0000] hover:bg-[#e60000] text-white border border-[#cc0000] rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
+                    className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-[#FF0000] hover:bg-[#e60000] text-rose-50 border border-[#cc0000] rounded-xl font-black text-xs sm:text-sm shadow-md transition-all cursor-pointer active:scale-[0.98]"
                   >
                     <Square className="w-3.5 h-3.5 fill-current" />
                     <span>Stop</span>
@@ -510,7 +570,7 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
                       ? 'bg-neutral-100 text-neutral-400 border border-neutral-200 cursor-not-allowed opacity-60'
                       : isPaused
                       ? 'bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00] shadow-md cursor-pointer'
-                      : 'bg-[#000000] hover:bg-neutral-900 text-white border border-neutral-800 shadow-md cursor-pointer'
+                      : 'bg-amber-500 hover:bg-amber-400 text-slate-950 border border-amber-600 shadow-md cursor-pointer'
                   }`}
                 >
                   {isPaused ? (

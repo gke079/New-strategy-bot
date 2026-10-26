@@ -32,7 +32,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({
 
   return (
     <div
-      className={`fixed bottom-0 left-0 right-0 z-30 backdrop-blur-md border-t py-2 px-2 sm:px-4 shadow-xl transition-colors ${
+      className={`fixed bottom-0 left-0 right-0 z-40 backdrop-blur-md border-t py-2 px-2 sm:px-4 shadow-xl transition-colors ${
         isLight
           ? 'bg-white/95 border-neutral-200 text-neutral-900'
           : 'bg-black/95 border-neutral-850 text-white'

@@ -1,6 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { BotMetrics, Market, NormalBotConfig, TradeContractType } from '../types';
 import {
+   BotMetrics,
+  Market,
+  NormalBotConfig,
+  SignalEntryTrigger,
+  TradeContractType,
+} from '../types';
+import {
+  BarrierFilter,
   MarketSignalSnapshot,
   MultiMarketSignalScanner,
   SignalCategory,
@@ -11,6 +18,7 @@ export interface SignalExecutionRequest {
   market: Market;
   contractType: TradeContractType;
   prediction: number;
+  signalEntryTrigger: SignalEntryTrigger;
   stake: number;
   martingale: number;
   takeProfit: number;
@@ -191,7 +199,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   theme = 'dark',
 }) => {
   const [category, setCategory] = useState<SignalCategory>('even_odd');
-  const [overUnderBarrier, setOverUnderBarrier] = useState<number>(4);
+  const [overUnderBarrier, setOverUnderBarrier] = useState<BarrierFilter>('all');
 
   const stake = normalBotConfig.initialStake;
   const martingale = normalBotConfig.martingale;
@@ -257,10 +265,10 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
   const subtitleText =
     category === 'even_odd'
-      ? 'Even or odd last-digit read. Set your stake once, then run a live signal directly on the Normal Bot.'
+      ? 'Signals trigger at ≥53% with rising momentum (50/50 equal = no trade, scan again). Entry: ≥2 consecutive opposite digits followed by 1 confirmation digit.'
       : category === 'over_under'
-      ? `Over or under barrier ${overUnderBarrier} last-digit read. Set your parameters once, then launch directly on the Normal Bot.`
-      : 'Hot digit frequency read across synthetic indices. Click Run this signal to start trading on the Normal Bot.';
+      ? 'Over 3–7 & Under 6–3 rules: Over 3 ≥65% · Over 4 ≥60% · Over 5 ≥55% · Over 6 ≥45% · Over 7 ≥35% | Under 6 ≥65% · Under 5 ≥60% · Under 4 ≥55% · Under 3 ≥45%.'
+      : 'Hot digit frequency and cluster read across synthetic indices. Click Run this signal to start trading on the Normal Bot.';
 
   const compactInputClass = `w-16 px-1.5 py-1.5 rounded-lg border text-center font-mono tabular-nums text-xs sm:text-sm font-bold focus:outline-none focus:border-[#2563eb] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
     isLight
@@ -488,9 +496,20 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         </div>
 
         {category === 'over_under' && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs font-semibold text-slate-400">Barrier:</span>
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((b) => (
+          <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-xs font-semibold text-slate-400 mr-0.5">Barrier:</span>
+            <button
+              type="button"
+              onClick={() => setOverUnderBarrier('all')}
+              className={`px-2.5 h-7 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+                overUnderBarrier === 'all'
+                  ? 'bg-[#2563eb] text-sky-50 border-[#2563eb]'
+                  : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'
+              }`}
+            >
+              All (3–7)
+            </button>
+            {([3, 4, 5, 6, 7] as const).map((b) => (
               <button
                 key={b}
                 type="button"
@@ -528,7 +547,14 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                   : 'bg-[#111827] border-slate-800 shadow-sm'
               }`}
             >
-              <CyberScannerBanner modeLabel={modeBannerLabel} lastDigit={snap.lastDigit} />
+              <CyberScannerBanner
+                modeLabel={
+                  category === 'over_under' && !snap.isScanning
+                    ? `${snap.contractType} #${snap.prediction}`
+                    : modeBannerLabel
+                }
+                lastDigit={snap.lastDigit}
+              />
 
               <div className="p-4 flex flex-col gap-3 flex-1 justify-between">
                 <div className="flex items-start justify-between gap-2">
@@ -554,21 +580,21 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                 {snap.isScanning && !isThisCardRunning ? (
                   <div className="flex items-center gap-3.5 py-1.5">
                     <ScanningRing secondsLeft={snap.scanSecondsLeft} />
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 min-w-0">
                       <span className="text-xs sm:text-sm font-extrabold tracking-wide text-white uppercase">
                         SCANNING
                       </span>
                       <span className="w-5 h-1 rounded-full bg-cyan-500" />
-                      <span className="text-xs text-slate-400 font-mono tabular-nums">
-                        {snap.windowTickCount} ticks · 17s window
+                      <span className="text-xs text-slate-400 font-mono tabular-nums truncate">
+                        {snap.scanStatusNote}
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center gap-3">
+                  <div className="flex flex-col gap-2.5">
+                    <div className="flex items-start gap-3">
                       <span
-                        className={`px-4 py-1.5 rounded-full text-xs sm:text-sm font-extrabold tracking-wide uppercase shrink-0 shadow-2xs ${
+                        className={`px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-extrabold tracking-wide uppercase shrink-0 shadow-2xs ${
                           snap.signalTone === 'emerald'
                             ? 'bg-[#10b981] text-emerald-50'
                             : snap.signalTone === 'fuchsia'
@@ -579,14 +605,34 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         {snap.signalLabel}
                       </span>
 
-                      <div className="flex flex-col">
+                      <div className="flex flex-col min-w-0">
                         <span className="text-xs sm:text-sm font-extrabold text-white font-mono tabular-nums">
-                          Entry · {snap.entryConfidencePct}%
+                          Entry · {snap.entryConfidencePct}% · {snap.payoutMultiplier.toFixed(2)}x
                         </span>
-                        <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums">
+                        <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums truncate">
                           {snap.distributionSubtext}
                         </span>
                       </div>
+                    </div>
+
+                    {/* Unboxed Entry Confirmation / Pattern Telemetry */}
+                    <div className="flex flex-col gap-0.5 text-[11px] font-mono tabular-nums leading-snug">
+                      {snap.patternSummary && (
+                        <span
+                          className={`truncate ${
+                            category === 'even_odd' && snap.entryConfirmedNow
+                              ? 'text-emerald-400 font-bold'
+                              : 'text-slate-400'
+                          }`}
+                        >
+                          {category === 'even_odd' ? snap.patternSummary : `Pattern · ${snap.patternSummary}`}
+                        </span>
+                      )}
+                      {category === 'over_under' && snap.topBarriersSummary && (
+                        <span className="truncate text-slate-500">
+                          Qualifying · {snap.topBarriersSummary}
+                        </span>
+                      )}
                     </div>
 
                     {isThisCardRunning ? (
@@ -608,6 +654,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                             market: snap.market,
                             contractType: snap.contractType,
                             prediction: snap.prediction,
+                            signalEntryTrigger: snap.signalEntryTrigger,
                             stake,
                             martingale,
                             takeProfit,
@@ -627,9 +674,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                   {snap.recentDigits.map((d, idx) => {
                     const isPositiveTile =
                       category === 'even_odd'
-                        ? d % 2 === 0
+                        ? snap.contractType === 'EVEN'
+                          ? d % 2 === 0
+                          : d % 2 !== 0
                         : category === 'over_under'
-                        ? d > overUnderBarrier
+                        ? snap.contractType === 'OVER'
+                          ? d > snap.prediction
+                          : d < snap.prediction
                         : d === snap.hotDigit;
 
                     return (

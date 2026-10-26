@@ -107,6 +107,7 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
     onUpdateConfig({
       contractType: newContract,
       prediction: defaultPrediction,
+      signalEntryTrigger: 'immediate',
     });
   };
 

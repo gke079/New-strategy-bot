@@ -205,6 +205,11 @@ export interface XmlBotConfig {
   rawImportedXml?: string;
 }
 
+export type SignalEntryTrigger =
+  | 'immediate'
+  | 'even_after_2_odd_confirm'
+  | 'odd_after_2_even_confirm';
+
 export interface NormalBotConfig {
   id: string;
   name: string;
@@ -221,6 +226,7 @@ export interface NormalBotConfig {
   martingaleLevel: number; // max consecutive loss steps before resetting
   active: boolean;
   botSpeed?: 'normal' | 'fast'; // 'fast' = trades every tick; 'normal' = skips 1 tick between entry and exit
+  signalEntryTrigger?: SignalEntryTrigger;
 }
 
 export interface BotMetrics {
