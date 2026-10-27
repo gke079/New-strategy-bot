@@ -25,6 +25,8 @@ export interface FloatingBotControllerProps {
   // Normal Bot
   normalBotRunning: boolean;
   normalBotPaused: boolean;
+  normalBotWaitingForEntry?: boolean;
+  normalBotEntryStatus?: string;
   normalBotStake: number;
   normalBotStep: number;
   normalBotMetrics: BotMetrics;
@@ -59,6 +61,8 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
   onSelectBot,
   normalBotRunning,
   normalBotPaused,
+  normalBotWaitingForEntry = false,
+  normalBotEntryStatus = '',
   normalBotStake,
   normalBotStep,
   normalBotMetrics,
@@ -258,22 +262,29 @@ export const FloatingBotController: React.FC<FloatingBotControllerProps> = ({
               <span
                 className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                   isRunning
-                    ? isPaused
+                    ? isPaused || (isNormal && normalBotWaitingForEntry)
                       ? 'bg-amber-100 text-amber-800 border border-amber-300'
                       : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                     : 'bg-neutral-100 text-neutral-600 border border-neutral-300'
                 }`}
+                title={isNormal && normalBotWaitingForEntry ? normalBotEntryStatus : undefined}
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full ${
                     isRunning
-                      ? isPaused
-                        ? 'bg-amber-500'
+                      ? isPaused || (isNormal && normalBotWaitingForEntry)
+                        ? 'bg-amber-500 animate-pulse'
                         : 'bg-emerald-600 animate-pulse'
                       : 'bg-neutral-400'
                   }`}
                 />
-                {isRunning ? (isPaused ? 'Paused' : 'Running') : 'Idle'}
+                {isRunning
+                  ? isPaused
+                    ? 'Paused'
+                    : isNormal && normalBotWaitingForEntry
+                    ? 'Waiting Entry'
+                    : 'Running'
+                  : 'Idle'}
               </span>
 
               {/* Settings shortcut button */}

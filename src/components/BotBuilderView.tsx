@@ -244,6 +244,7 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
   };
 
   const needsBarrierDigit = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(config.contractType);
+  const isHighLowTick = config.contractType === 'HIGH_TICK' || config.contractType === 'LOW_TICK';
   const needsConditionDigit = [
     'last_digit_eq',
     'last_digit_neq',
@@ -601,11 +602,21 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                   value={config.contractType}
                   onChange={(e) => {
                     const ct = e.target.value as TradeContractType;
+                    const highLow = ct === 'HIGH_TICK' || ct === 'LOW_TICK';
                     updateStructuredField({
                       contractType: ct,
-                      contractCategory: ['RISE', 'FALL', 'ONLY_UP', 'ONLY_DOWN', 'RESET_CALL', 'RESET_PUT'].includes(ct)
+                      contractCategory: highLow
+                        ? 'highlowticks'
+                        : ['RISE', 'FALL', 'ONLY_UP', 'ONLY_DOWN', 'RESET_CALL', 'RESET_PUT'].includes(ct)
                         ? 'callput'
                         : 'digits',
+                      ...(highLow
+                        ? {
+                            duration: 5,
+                            durationUnit: 't',
+                            prediction: Math.max(1, Math.min(5, Math.round(config.prediction || 3))),
+                          }
+                        : {}),
                     });
                   }}
                   className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-semibold text-white"
@@ -617,6 +628,10 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                     <option value="MATCHES">Digit Matches (DIGITMATCH)</option>
                     <option value="EVEN">Digit Even (DIGITEVEN)</option>
                     <option value="ODD">Digit Odd (DIGITODD)</option>
+                  </optgroup>
+                  <optgroup label="High / Low Ticks">
+                    <option value="HIGH_TICK">High Tick (TICKHIGH)</option>
+                    <option value="LOW_TICK">Low Tick (TICKLOW)</option>
                   </optgroup>
                   <optgroup label="Up / Down & Runs">
                     <option value="RISE">Rise / Call (CALL)</option>
@@ -650,21 +665,23 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                     type="number"
                     min={1}
                     max={60}
-                    value={config.duration}
+                    disabled={isHighLowTick}
+                    value={isHighLowTick ? 5 : config.duration}
                     onChange={(e) =>
                       updateStructuredField({ duration: Math.max(1, parseInt(e.target.value, 10) || 1) })
                     }
-                    className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-white"
+                    className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-white disabled:opacity-60"
                   />
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 font-medium block mb-1">Unit</label>
                   <select
-                    value={config.durationUnit}
+                    disabled={isHighLowTick}
+                    value={isHighLowTick ? 't' : config.durationUnit}
                     onChange={(e) =>
                       updateStructuredField({ durationUnit: e.target.value as 't' | 's' | 'm' })
                     }
-                    className="w-full px-2.5 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-semibold text-white"
+                    className="w-full px-2.5 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-semibold text-white disabled:opacity-60"
                   >
                     <option value="t">Ticks (t)</option>
                     <option value="s">Seconds (s)</option>
@@ -694,6 +711,33 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                       {d}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {isHighLowTick && (
+              <div>
+                <label className="text-xs text-slate-400 font-medium block mb-1.5">
+                  Predicted {config.contractType === 'HIGH_TICK' ? 'High' : 'Low'} Tick (1–5)
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[1, 2, 3, 4, 5].map((tNum) => {
+                    const activePred = Math.max(1, Math.min(5, Math.round(config.prediction || 3)));
+                    return (
+                      <button
+                        key={tNum}
+                        type="button"
+                        onClick={() => updateStructuredField({ prediction: tNum })}
+                        className={`py-1.5 rounded-lg font-mono tabular-nums text-xs font-bold border transition-all cursor-pointer ${
+                          activePred === tNum
+                            ? 'bg-blue-600 text-sky-50 border-blue-500 shadow-xs'
+                            : 'bg-sky-50 text-sky-800 border-sky-200 hover:bg-sky-100'
+                        }`}
+                      >
+                        Tick #{tNum}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -968,12 +1012,15 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                 <label className="text-xs text-slate-400 font-medium block mb-1">Take Profit ($)</label>
                 <input
                   type="number"
-                  min={0.5}
-                  step={1}
+                  min={0.1}
+                  step={0.1}
                   value={config.takeProfit}
-                  onChange={(e) =>
-                    updateStructuredField({ takeProfit: Math.max(0.5, parseFloat(e.target.value) || 10) })
-                  }
+                  onChange={(e) => {
+                    const parsed = parseFloat(e.target.value);
+                    updateStructuredField({
+                      takeProfit: Number.isNaN(parsed) ? 0.1 : Math.max(0.1, parsed),
+                    });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-emerald-400"
                 />
               </div>

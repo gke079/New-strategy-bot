@@ -20,6 +20,8 @@ export const CONTRACT_TO_DERIV_CODE: Record<string, { code: string; tradeTypeCat
   FALL: { code: 'PUT', tradeTypeCat: 'callput', tradeType: 'risefall' },
   ONLY_UP: { code: 'RUNHIGH', tradeTypeCat: 'upsanddowns', tradeType: 'runs' },
   ONLY_DOWN: { code: 'RUNLOW', tradeTypeCat: 'upsanddowns', tradeType: 'runs' },
+  HIGH_TICK: { code: 'TICKHIGH', tradeTypeCat: 'highlowticks', tradeType: 'highlowticks' },
+  LOW_TICK: { code: 'TICKLOW', tradeTypeCat: 'highlowticks', tradeType: 'highlowticks' },
   RESET_CALL: { code: 'RESETCALL', tradeTypeCat: 'reset', tradeType: 'reset' },
   RESET_PUT: { code: 'RESETPUT', tradeTypeCat: 'reset', tradeType: 'reset' },
 };
@@ -37,6 +39,8 @@ export const DERIV_CODE_TO_CONTRACT: Record<string, TradeContractType> = {
   PUTE: 'FALL',
   RUNHIGH: 'ONLY_UP',
   RUNLOW: 'ONLY_DOWN',
+  TICKHIGH: 'HIGH_TICK',
+  TICKLOW: 'LOW_TICK',
   RESETCALL: 'RESET_CALL',
   RESETPUT: 'RESET_PUT',
 };
@@ -63,7 +67,7 @@ export const DEFAULT_XML_BOT_CONFIG: XmlBotConfig = {
   dalembertUnit: 0.5,
   maxMartingaleSteps: 4,
   resetOnMaxSteps: true,
-  takeProfit: 10.0,
+  takeProfit: 0.1,
   stopLoss: 25.0,
   tradeAgain: true,
   cooldownTicks: 0,
@@ -72,7 +76,7 @@ export const DEFAULT_XML_BOT_CONFIG: XmlBotConfig = {
     { id: 'var_stake', name: 'Stake', initialValue: 1.0 },
     { id: 'var_init_stake', name: 'Initial Stake', initialValue: 1.0 },
     { id: 'var_martingale', name: 'Martingale Multiplier', initialValue: 2.1 },
-    { id: 'var_tp', name: 'Take Profit', initialValue: 10.0 },
+    { id: 'var_tp', name: 'Take Profit', initialValue: 0.1 },
     { id: 'var_sl', name: 'Stop Loss', initialValue: 25.0 },
   ],
 };
@@ -289,7 +293,9 @@ function buildBeforePurchaseConditionXml(config: XmlBotConfig, derivPurchaseCode
 export function configToDerivXml(config: XmlBotConfig): string {
   const mapping = CONTRACT_TO_DERIV_CODE[config.contractType] || CONTRACT_TO_DERIV_CODE.OVER;
   const submarket = getSubmarketForSymbol(config.marketId);
-  const needsPrediction = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(config.contractType);
+  const needsPrediction = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES', 'HIGH_TICK', 'LOW_TICK'].includes(
+    config.contractType
+  );
 
   const coreVarDefs = [
     { id: 'v_stake', name: 'Stake' },
@@ -792,8 +798,14 @@ export function parseDerivXmlToConfig(
   }
   summary.push(
     `Trade Setup: $${nextConfig.initialStake.toFixed(2)} stake · ${nextConfig.duration}${nextConfig.durationUnit}${
-      ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(nextConfig.contractType)
-        ? ` · Barrier ${nextConfig.prediction}`
+      ['OVER', 'UNDER', 'DIFFERS', 'MATCHES', 'HIGH_TICK', 'LOW_TICK'].includes(
+        nextConfig.contractType
+      )
+        ? ` · ${
+            nextConfig.contractType === 'HIGH_TICK' || nextConfig.contractType === 'LOW_TICK'
+              ? `Tick #${nextConfig.prediction}`
+              : `Barrier ${nextConfig.prediction}`
+          }`
         : ''
     }`
   );

@@ -26,6 +26,40 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
     return t.contractType === filterType;
   });
 
+  const formatContractLabel = (trade: Trade): string => {
+    const rawPred = String(trade.prediction ?? '').trim();
+    const digitMatch = rawPred.match(/\d+/);
+    const digit = digitMatch ? digitMatch[0] : '';
+
+    switch (trade.contractType) {
+      case 'UNDER':
+        return digit !== '' ? `Under ${digit}` : 'Under';
+      case 'OVER':
+        return digit !== '' ? `Over ${digit}` : 'Over';
+      case 'MATCHES':
+        return digit !== '' ? `Matches ${digit}` : 'Matches';
+      case 'DIFFERS':
+        return digit !== '' ? `Differs ${digit}` : 'Differs';
+      case 'EVEN':
+        return 'Even';
+      case 'ODD':
+        return 'Odd';
+      case 'RISE':
+        return 'Rise';
+      case 'FALL':
+        return 'Fall';
+      case 'HIGH_TICK':
+        return digit !== '' ? `High Tick #${digit}` : 'High Tick';
+      case 'LOW_TICK':
+        return digit !== '' ? `Low Tick #${digit}` : 'Low Tick';
+      default:
+        return trade.contractType
+          .split('_')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(' ');
+    }
+  };
+
   const exportCSV = () => {
     if (trades.length === 0) return;
     const headers = ['ID', 'BotSource', 'Timestamp', 'Market', 'Strategy', 'Contract', 'Prediction', 'ExitDigit', 'Stake', 'Profit', 'Status', 'BalanceAfter'];
@@ -35,7 +69,7 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
       new Date(t.timestamp).toISOString(),
       t.marketId,
       `"${t.strategyName}"`,
-      t.contractType,
+      `"${formatContractLabel(t)}"`,
       `"${t.prediction}"`,
       t.exitDigit,
       t.stake,
@@ -153,7 +187,7 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
           <span className="text-slate-400 flex items-center gap-1">
             <Filter className="w-3 h-3" />
           </span>
-          {['all', 'won', 'lost', 'RISE', 'FALL', 'DIFFERS', 'MATCHES', 'EVEN', 'ODD', 'ONLY_UP', 'RESET_CALL', 'STAY_BETWEEN'].map((f) => (
+          {['all', 'won', 'lost', 'OVER', 'UNDER', 'EVEN', 'ODD', 'MATCHES', 'DIFFERS', 'RISE', 'FALL', 'ONLY_UP', 'ONLY_DOWN', 'HIGH_TICK', 'LOW_TICK'].map((f) => (
             <button
               key={f}
               onClick={() => setFilterType(f)}
@@ -220,9 +254,8 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
                     </span>
                   </td>
                   <td className="py-2.5 px-3">
-                    <span className="font-bold text-white">{t.contractType}</span>
-                    <span className="text-slate-400 ml-1.5 text-[11px] hidden sm:inline">
-                      ({t.prediction})
+                    <span className="font-bold text-white whitespace-nowrap tabular-nums">
+                      {formatContractLabel(t)}
                     </span>
                   </td>
                   <td className="py-2.5 px-3">

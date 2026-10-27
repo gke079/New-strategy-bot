@@ -19,6 +19,11 @@ export interface ActiveContract {
   speedMode?: 'normal' | 'fast';
   skippedTick?: Tick;
   stepState?: 'entry' | 'skipped' | 'resolving';
+  lastObservedQuote?: number;
+  allStrictUp?: boolean;
+  allStrictDown?: boolean;
+  observedQuotes?: number[];
+  hasSkipTick?: boolean;
 }
 
 export class NormalBotExecutor {
@@ -42,10 +47,13 @@ export class NormalBotExecutor {
   private balance: number = 10000;
   private isRunning: boolean = false;
   private isPaused: boolean = false;
+  private hasInitialEntryConfirmed: boolean = false;
+  private postStartTicks: Tick[] = [];
   private onTradeListeners: Set<(trade: Trade, metrics: BotMetrics, balance: number) => void> = new Set();
   private onStatusChangeListeners: Set<(isRunning: boolean, reason?: string) => void> = new Set();
   private onPauseChangeListeners: Set<(isPaused: boolean) => void> = new Set();
   private onContractProgressListeners: Set<(activeContract: ActiveContract | null) => void> = new Set();
+  private onEntryWaitListeners: Set<(waiting: boolean, statusText: string) => void> = new Set();
 
   private botSource: Trade['botSource'] = 'normal';
 
@@ -112,6 +120,9 @@ export class NormalBotExecutor {
     this.isRunning = true;
     this.isPaused = false;
     this.activeContract = null;
+    this.postStartTicks = [];
+    const effectiveTrigger = this.getEffectiveEntryTrigger();
+    this.hasInitialEntryConfirmed = effectiveTrigger === 'immediate';
     this.currentStake = this.config.initialStake;
     this.currentStep = 0;
     this.consecutiveLosses = 0;
@@ -119,6 +130,15 @@ export class NormalBotExecutor {
     this.notifyStatus(true);
     this.notifyPause(false);
     this.notifyContractProgress(null);
+    if (!this.hasInitialEntryConfirmed) {
+      this.notifyEntryWait(true, this.describeEntryWaitStatus([]));
+    } else {
+      this.notifyEntryWait(false, '');
+    }
+  }
+
+  public isWaitingForInitialEntry(): boolean {
+    return this.isRunning && !this.hasInitialEntryConfirmed;
   }
 
   public pause() {
@@ -146,15 +166,20 @@ export class NormalBotExecutor {
   public stop(reason?: string) {
     this.isRunning = false;
     this.isPaused = false;
+    this.hasInitialEntryConfirmed = false;
+    this.postStartTicks = [];
     this.activeContract = null;
     this.notifyStatus(false, reason);
     this.notifyPause(false);
     this.notifyContractProgress(null);
+    this.notifyEntryWait(false, '');
   }
 
   public resetStats() {
     this.trades = [];
     this.activeContract = null;
+    this.postStartTicks = [];
+    this.hasInitialEntryConfirmed = this.getEffectiveEntryTrigger() === 'immediate';
     this.currentStake = this.config.initialStake;
     this.currentStep = 0;
     this.consecutiveLosses = 0;
@@ -199,6 +224,13 @@ export class NormalBotExecutor {
     return () => this.onPauseChangeListeners.delete(listener);
   }
 
+  public onEntryWaitChange(
+    listener: (waiting: boolean, statusText: string) => void
+  ): () => void {
+    this.onEntryWaitListeners.add(listener);
+    return () => this.onEntryWaitListeners.delete(listener);
+  }
+
   private notifyStatus(running: boolean, reason?: string) {
     this.onStatusChangeListeners.forEach((l) => l(running, reason));
   }
@@ -211,8 +243,16 @@ export class NormalBotExecutor {
     this.onContractProgressListeners.forEach((l) => l(contract));
   }
 
-  // Payout multiplier based on contract type & prediction
-  private getPayoutMultiplier(type: TradeContractType, prediction: number | string): number {
+  private notifyEntryWait(waiting: boolean, statusText: string) {
+    this.onEntryWaitListeners.forEach((l) => l(waiting, statusText));
+  }
+
+  // Payout multiplier based on contract type, prediction & tick duration
+  private getPayoutMultiplier(
+    type: TradeContractType,
+    prediction: number | string,
+    durationTicks: number = 2
+  ): number {
     const digitNum = typeof prediction === 'number' ? prediction : parseInt(String(prediction), 10) || 5;
     switch (type) {
       case 'OVER': {
@@ -235,28 +275,86 @@ export class NormalBotExecutor {
       case 'LOWER':
         return 1.95;
       case 'ONLY_UP':
-      case 'ONLY_DOWN':
-        return 3.85;
+      case 'ONLY_DOWN': {
+        const clamped = Math.min(5, Math.max(2, Math.round(durationTicks || 2)));
+        const map: Record<number, number> = { 2: 3.85, 3: 7.8, 4: 15.6, 5: 31.2 };
+        return map[clamped] ?? 3.85;
+      }
+      case 'HIGH_TICK':
+      case 'LOW_TICK':
+        return 4.2;
       default:
         return 1.95;
     }
+  }
+
+  private getEffectiveEntryTrigger() {
+    const trigger = this.config.signalEntryTrigger;
+    if (!trigger || trigger === 'immediate') return 'immediate' as const;
+
+    if (this.config.contractType === 'EVEN' && trigger === 'even_after_2_odd_confirm') {
+      return trigger;
+    }
+    if (this.config.contractType === 'ODD' && trigger === 'odd_after_2_even_confirm') {
+      return trigger;
+    }
+    if (this.config.contractType === 'OVER' && trigger === 'over_after_3_opp_confirm') {
+      return trigger;
+    }
+    if (this.config.contractType === 'UNDER' && trigger === 'under_after_3_opp_confirm') {
+      return trigger;
+    }
+    if (this.config.contractType === 'ONLY_UP' && trigger === 'only_up_after_down_confirm') {
+      return trigger;
+    }
+    if (this.config.contractType === 'ONLY_DOWN' && trigger === 'only_down_after_up_confirm') {
+      return trigger;
+    }
+    if (this.config.contractType === 'HIGH_TICK' && trigger === 'high_tick_3_rising_confirm') {
+      return trigger;
+    }
+    if (this.config.contractType === 'LOW_TICK' && trigger === 'low_tick_3_falling_confirm') {
+      return trigger;
+    }
+    return 'immediate' as const;
+  }
+
+  private get5mCandleSecondsRemaining(epochOrMs?: number): number {
+    const raw =
+      typeof epochOrMs === 'number' && epochOrMs > 1e8
+        ? epochOrMs > 1e11
+          ? Math.floor(epochOrMs / 1000)
+          : Math.floor(epochOrMs)
+        : Math.floor(Date.now() / 1000);
+    return Math.max(1, 300 - (raw % 300));
+  }
+
+  private getTickStepDirection(ticks: Tick[], idx: number): 'up' | 'down' | 'flat' {
+    if (idx > 0) {
+      if (ticks[idx].quote > ticks[idx - 1].quote) return 'up';
+      if (ticks[idx].quote < ticks[idx - 1].quote) return 'down';
+      return 'flat';
+    }
+    return ticks[idx]?.direction ?? 'flat';
   }
 
   /**
    * Checks whether an optional Signal entry confirmation sequence is satisfied on allTicks:
    * - 'even_after_2_odd_confirm': >= 2 consecutive Odd digits immediately followed by 1 Even digit confirmation
    * - 'odd_after_2_even_confirm': >= 2 consecutive Even digits immediately followed by 1 Odd digit confirmation
+   * - 'under_after_3_opp_confirm': >= 3 consecutive opposite digits (>= barrier) followed by 1 winning digit (< barrier)
+   * - 'over_after_3_opp_confirm': >= 3 consecutive opposite digits (<= barrier) followed by 1 winning digit (> barrier)
    */
   public isEntryTriggerMet(allTicks: Tick[]): boolean {
-    const trigger = this.config.signalEntryTrigger;
-    if (!trigger || trigger === 'immediate') return true;
-    if (allTicks.length < 3) return false;
+    const trigger = this.getEffectiveEntryTrigger();
+    if (trigger === 'immediate') return true;
 
     const lastIdx = allTicks.length - 1;
+    if (lastIdx < 0) return false;
     const confirmDigit = allTicks[lastIdx].lastDigit;
 
     if (trigger === 'even_after_2_odd_confirm') {
-      if (confirmDigit % 2 !== 0) return false; // Latest tick must be Even confirmation
+      if (allTicks.length < 3 || confirmDigit % 2 !== 0) return false;
       let oddStreak = 0;
       for (let i = lastIdx - 1; i >= 0; i--) {
         if (allTicks[i].lastDigit % 2 !== 0) oddStreak++;
@@ -266,7 +364,7 @@ export class NormalBotExecutor {
     }
 
     if (trigger === 'odd_after_2_even_confirm') {
-      if (confirmDigit % 2 === 0) return false; // Latest tick must be Odd confirmation
+      if (allTicks.length < 3 || confirmDigit % 2 === 0) return false;
       let evenStreak = 0;
       for (let i = lastIdx - 1; i >= 0; i--) {
         if (allTicks[i].lastDigit % 2 === 0) evenStreak++;
@@ -275,12 +373,195 @@ export class NormalBotExecutor {
       return evenStreak >= 2;
     }
 
+    if (trigger === 'under_after_3_opp_confirm') {
+      if (allTicks.length < 4) return false;
+      const barrier =
+        typeof this.config.prediction === 'number'
+          ? this.config.prediction
+          : parseInt(String(this.config.prediction), 10) || 5;
+      if (confirmDigit >= barrier) return false; // Latest tick must be on winning side (< barrier)
+      let oppStreak = 0;
+      for (let i = lastIdx - 1; i >= 0; i--) {
+        if (allTicks[i].lastDigit >= barrier) oppStreak++;
+        else break;
+      }
+      return oppStreak >= 3;
+    }
+
+    if (trigger === 'over_after_3_opp_confirm') {
+      if (allTicks.length < 4) return false;
+      const barrier =
+        typeof this.config.prediction === 'number'
+          ? this.config.prediction
+          : parseInt(String(this.config.prediction), 10) || 4;
+      if (confirmDigit <= barrier) return false; // Latest tick must be on winning side (> barrier)
+      let oppStreak = 0;
+      for (let i = lastIdx - 1; i >= 0; i--) {
+        if (allTicks[i].lastDigit <= barrier) oppStreak++;
+        else break;
+      }
+      return oppStreak >= 3;
+    }
+
+    if (trigger === 'only_up_after_down_confirm') {
+      if (allTicks.length < 3 || this.getTickStepDirection(allTicks, lastIdx) !== 'up') {
+        return false;
+      }
+      let downStreak = 0;
+      for (let i = lastIdx - 1; i >= 0; i--) {
+        if (this.getTickStepDirection(allTicks, i) === 'down') downStreak++;
+        else break;
+      }
+      return downStreak >= 2;
+    }
+
+    if (trigger === 'only_down_after_up_confirm') {
+      if (allTicks.length < 3 || this.getTickStepDirection(allTicks, lastIdx) !== 'down') {
+        return false;
+      }
+      let upStreak = 0;
+      for (let i = lastIdx - 1; i >= 0; i--) {
+        if (this.getTickStepDirection(allTicks, i) === 'up') upStreak++;
+        else break;
+      }
+      return upStreak >= 2;
+    }
+
+    if (trigger === 'high_tick_3_rising_confirm') {
+      if (allTicks.length < 3) return false;
+      let riseStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(allTicks, i) === 'up') riseStreak++;
+        else break;
+      }
+      return riseStreak >= 3;
+    }
+
+    if (trigger === 'low_tick_3_falling_confirm') {
+      if (allTicks.length < 3) return false;
+      let fallStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(allTicks, i) === 'down') fallStreak++;
+        else break;
+      }
+      return fallStreak >= 3;
+    }
+
     return true;
+  }
+
+  public describeEntryWaitStatus(ticks: Tick[]): string {
+    const trigger = this.getEffectiveEntryTrigger();
+    if (trigger === 'immediate') return '';
+
+    const lastIdx = ticks.length - 1;
+
+    if (trigger === 'even_after_2_odd_confirm') {
+      let oddStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (ticks[i].lastDigit % 2 !== 0) oddStreak++;
+        else break;
+      }
+      if (oddStreak >= 2) {
+        return `Entry armed (${oddStreak}x Odd) · Next Even starts trades`;
+      }
+      return `Waiting entry: ${oddStreak}/2 Odd → 1 Even confirm`;
+    }
+
+    if (trigger === 'odd_after_2_even_confirm') {
+      let evenStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (ticks[i].lastDigit % 2 === 0) evenStreak++;
+        else break;
+      }
+      if (evenStreak >= 2) {
+        return `Entry armed (${evenStreak}x Even) · Next Odd starts trades`;
+      }
+      return `Waiting entry: ${evenStreak}/2 Even → 1 Odd confirm`;
+    }
+
+    if (trigger === 'under_after_3_opp_confirm') {
+      const barrier =
+        typeof this.config.prediction === 'number'
+          ? this.config.prediction
+          : parseInt(String(this.config.prediction), 10) || 5;
+      let oppStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (ticks[i].lastDigit >= barrier) oppStreak++;
+        else break;
+      }
+      if (oppStreak >= 3) {
+        return `Entry armed (${oppStreak}x ≥${barrier}) · Next <${barrier} starts trades`;
+      }
+      return `Waiting entry: ${oppStreak}/3 (≥${barrier}) → 1 (<${barrier}) confirm`;
+    }
+
+    if (trigger === 'over_after_3_opp_confirm') {
+      const barrier =
+        typeof this.config.prediction === 'number'
+          ? this.config.prediction
+          : parseInt(String(this.config.prediction), 10) || 4;
+      let oppStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (ticks[i].lastDigit <= barrier) oppStreak++;
+        else break;
+      }
+      if (oppStreak >= 3) {
+        return `Entry armed (${oppStreak}x ≤${barrier}) · Next >${barrier} starts trades`;
+      }
+      return `Waiting entry: ${oppStreak}/3 (≤${barrier}) → 1 (>${barrier}) confirm`;
+    }
+
+    if (trigger === 'only_up_after_down_confirm') {
+      let fallStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(ticks, i) === 'down') fallStreak++;
+        else break;
+      }
+      if (fallStreak >= 2) {
+        return `Entry armed (${fallStreak}x Fall ▼) · Next Rise ▲ starts trades`;
+      }
+      return `Waiting entry: ${fallStreak}/2 Fall ▼ → 1 Rise ▲`;
+    }
+
+    if (trigger === 'only_down_after_up_confirm') {
+      let riseStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(ticks, i) === 'up') riseStreak++;
+        else break;
+      }
+      if (riseStreak >= 2) {
+        return `Entry armed (${riseStreak}x Rise ▲) · Next Fall ▼ starts trades`;
+      }
+      return `Waiting entry: ${riseStreak}/2 Rise ▲ → 1 Fall ▼`;
+    }
+
+    if (trigger === 'high_tick_3_rising_confirm') {
+      let riseStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(ticks, i) === 'up') riseStreak++;
+        else break;
+      }
+      return `Waiting entry: ${Math.min(3, riseStreak)}/3 consecutive Rise ▲ ticks`;
+    }
+
+    if (trigger === 'low_tick_3_falling_confirm') {
+      let fallStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(ticks, i) === 'down') fallStreak++;
+        else break;
+      }
+      return `Waiting entry: ${Math.min(3, fallStreak)}/3 consecutive Fall ▼ ticks`;
+    }
+
+    return 'Waiting for entry confirmation...';
   }
 
   // Evaluates every incoming tick
   public evaluateTick(tick: Tick, allTicks: Tick[], currentMarketId: string) {
     if (!this.isRunning || this.isPaused) return;
+
+    this.postStartTicks = [...this.postStartTicks.slice(-49), tick];
 
     // Check Take Profit or Stop Loss
     if (this.metrics.totalProfit >= this.config.takeProfit) {
@@ -302,30 +583,61 @@ export class NormalBotExecutor {
       const unit = contract.durationUnit || 't';
 
       if (unit === 't') {
-        const isNormalSpeed = (contract.speedMode || this.config.botSpeed || 'normal') === 'normal';
+        const isOnlyUpDown =
+          contract.contractType === 'ONLY_UP' || contract.contractType === 'ONLY_DOWN';
+        const isHighLowTick =
+          contract.contractType === 'HIGH_TICK' || contract.contractType === 'LOW_TICK';
 
-        // In Normal Mode: Entry was registered on previous tick.
-        // If ticksRemaining is 2, THIS tick is the SKIPPED tick!
-        if (isNormalSpeed && (contract.ticksRemaining ?? contract.duration) === 2) {
-          contract.skippedTick = tick;
-          contract.stepState = 'skipped';
-          contract.ticksRemaining = 1;
+        if (isOnlyUpDown) {
+          const prevQuote = contract.lastObservedQuote ?? contract.entryPrice;
+          if (tick.quote <= prevQuote) contract.allStrictUp = false;
+          if (tick.quote >= prevQuote) contract.allStrictDown = false;
+          contract.lastObservedQuote = tick.quote;
+          contract.ticksRemaining = (contract.ticksRemaining ?? contract.duration) - 1;
+          contract.stepState = 'resolving';
           this.notifyContractProgress({ ...contract });
-          return; // Skip this tick! The next tick will be the exit tick.
+
+          if (contract.ticksRemaining <= 0) {
+            this.resolveContract(tick, allTicks, currentMarketId);
+          }
+          return;
         }
 
-        // Advance to exit
+        if (isHighLowTick) {
+          contract.observedQuotes = [...(contract.observedQuotes ?? []), tick.quote];
+          contract.lastObservedQuote = tick.quote;
+          contract.ticksRemaining = (contract.ticksRemaining ?? contract.duration) - 1;
+          contract.stepState = 'resolving';
+          this.notifyContractProgress({ ...contract });
+
+          if (contract.ticksRemaining <= 0) {
+            this.resolveContract(tick, allTicks, currentMarketId);
+          }
+          return;
+        }
+
+        if (contract.hasSkipTick && contract.stepState === 'entry') {
+          contract.skippedTick = tick;
+          contract.stepState = 'skipped';
+          contract.ticksRemaining = Math.max(1, (contract.ticksRemaining ?? contract.duration) - 1);
+          this.notifyContractProgress({ ...contract });
+          return;
+        }
+
         contract.ticksRemaining = (contract.ticksRemaining ?? contract.duration) - 1;
         contract.stepState = 'resolving';
         this.notifyContractProgress({ ...contract });
 
-        // If contract has reached 0 remaining ticks, resolve it
         if (contract.ticksRemaining <= 0) {
           this.resolveContract(tick, allTicks, currentMarketId);
         }
         return;
       } else {
-        // Time-based: seconds or minutes
+        const prevQuote = contract.lastObservedQuote ?? contract.entryPrice;
+        if (tick.quote <= prevQuote) contract.allStrictUp = false;
+        if (tick.quote >= prevQuote) contract.allStrictDown = false;
+        contract.lastObservedQuote = tick.quote;
+
         const nowMs = Date.now();
         const endTime = contract.endTime || (contract.startTime + contract.duration * (unit === 'm' ? 60000 : 1000));
         const msRemaining = Math.max(0, endTime - nowMs);
@@ -339,15 +651,38 @@ export class NormalBotExecutor {
       }
     }
 
-    // 2. No active contract => place a new contract once entry trigger (if any) is met
-    if (!this.isEntryTriggerMet(allTicks)) {
-      return;
+    const isHighLowTickContract =
+      this.config.contractType === 'HIGH_TICK' || this.config.contractType === 'LOW_TICK';
+
+    // Strict 5-minute candle close guard for High Tick / Low Tick:
+    // No trade is placed when <= 10 seconds remain in the 5-minute candle.
+    if (isHighLowTickContract) {
+      const candle5mSecsLeft = this.get5mCandleSecondsRemaining(tick.epoch);
+      if (candle5mSecsLeft <= 10) {
+        this.notifyEntryWait(
+          true,
+          `No trade · 5m candle closing (${candle5mSecsLeft}s left ≤ 10s)`
+        );
+        return;
+      }
     }
-    this.openNewContract(tick);
+
+    // 2. Wait for entry confirmation on live ticks;
+    if (!this.hasInitialEntryConfirmed) {
+      if (!this.isEntryTriggerMet(this.postStartTicks)) {
+        this.notifyEntryWait(true, this.describeEntryWaitStatus(this.postStartTicks));
+        return;
+      }
+      this.hasInitialEntryConfirmed = true;
+      this.notifyEntryWait(false, '');
+    } else if (isHighLowTickContract) {
+      this.notifyEntryWait(false, '');
+    }
+    this.openNewContract(tick, allTicks);
   }
 
   // Opens a new contract
-  private openNewContract(entryTick: Tick) {
+  private openNewContract(entryTick: Tick, allTicks: Tick[] = []) {
     if (!this.isRunning || this.isPaused) return;
 
     if (this.metrics.totalProfit >= this.config.takeProfit) {
@@ -362,6 +697,17 @@ export class NormalBotExecutor {
       return;
     }
 
+    if (this.config.contractType === 'HIGH_TICK' || this.config.contractType === 'LOW_TICK') {
+      const candle5mSecsLeft = this.get5mCandleSecondsRemaining(entryTick.epoch);
+      if (candle5mSecsLeft <= 10) {
+        this.notifyEntryWait(
+          true,
+          `No trade · 5m candle closing (${candle5mSecsLeft}s left ≤ 10s)`
+        );
+        return;
+      }
+    }
+
     const stakeToUse = Math.min(this.balance, Math.max(0.35, this.currentStake));
     if (this.balance < stakeToUse) {
       this.stop('Insufficient balance to place stake');
@@ -370,11 +716,22 @@ export class NormalBotExecutor {
 
     const isFast = this.config.botSpeed === 'fast';
     const unit = this.config.durationUnit || 't';
-    // Fast mode: 1 tick duration (trade every tick).
-    // Normal mode: 2 ticks duration (1 tick skip, then 1 tick exit).
-    const duration = isFast
-      ? Math.max(1, Math.round(this.config.duration || 1))
-      : (unit === 't' && (!this.config.duration || this.config.duration === 1) ? 2 : Math.max(1, Math.round(this.config.duration || 1)));
+    const isOnlyUpDown =
+      this.config.contractType === 'ONLY_UP' || this.config.contractType === 'ONLY_DOWN';
+    const isHighLowTick =
+      this.config.contractType === 'HIGH_TICK' || this.config.contractType === 'LOW_TICK';
+    const configuredTicks = Math.max(1, Math.round(this.config.duration || 1));
+    // Only Up / Only Down requires 2-5 consecutive ticks; High Tick / Low Tick is strictly 5 ticks.
+    // For 1-tick digit contracts in Normal mode, preserve the 1-tick skip -> 1-tick exit cadence (total 2 ticks).
+    const hasSkipTick =
+      !isOnlyUpDown && !isHighLowTick && !isFast && unit === 't' && configuredTicks === 1;
+    const duration = isOnlyUpDown
+      ? Math.min(5, Math.max(2, configuredTicks))
+      : isHighLowTick
+      ? 5
+      : hasSkipTick
+      ? 2
+      : configuredTicks;
 
     const nowMs = Date.now();
     const durationSeconds = unit === 'm' ? duration * 60 : unit === 's' ? duration : 0;
@@ -385,44 +742,87 @@ export class NormalBotExecutor {
       entryTick,
       entryPrice: entryTick.quote,
       entryDigit: entryTick.lastDigit,
-      prediction: this.config.prediction,
+      prediction: isHighLowTick
+        ? Math.min(5, Math.max(1, Math.round(Number(this.config.prediction) || 5)))
+        : this.config.prediction,
       contractType: this.config.contractType,
       stake: stakeToUse,
       duration,
-      durationUnit: unit,
-      ticksRemaining: unit === 't' ? duration : undefined,
-      secondsRemaining: durationSeconds > 0 ? durationSeconds : undefined,
+      durationUnit: isHighLowTick ? 't' : unit,
+      ticksRemaining: isHighLowTick || unit === 't' ? duration : undefined,
+      secondsRemaining: !isHighLowTick && durationSeconds > 0 ? durationSeconds : undefined,
       startTime: nowMs,
-      endTime,
+      endTime: isHighLowTick ? undefined : endTime,
       speedMode: isFast ? 'fast' : 'normal',
       stepState: 'entry',
+      lastObservedQuote: entryTick.quote,
+      allStrictUp: true,
+      allStrictDown: true,
+      observedQuotes: isHighLowTick ? [] : undefined,
+      hasSkipTick,
     };
     this.notifyContractProgress({ ...this.activeContract });
   }
 
   // Resolves multi-tick contract upon reaching final tick
-  private resolveContract(exitTick: Tick, _allTicks: Tick[], marketId: string) {
+  private resolveContract(exitTick: Tick, allTicks: Tick[], marketId: string) {
     if (!this.activeContract) return;
     const contract = this.activeContract;
     this.activeContract = null;
     this.notifyContractProgress(null);
 
-    const won = this.checkWinCondition(
-      contract.contractType,
-      contract.prediction,
-      contract.entryTick,
-      exitTick
-    );
-    this.finalizeTrade(won, contract.stake, contract.entryTick, exitTick, marketId);
-
-    // In Fast mode, immediately open the next contract using exitTick as entry if trigger is met
-    if (
-      this.isRunning &&
-      !this.isPaused &&
-      this.config.botSpeed === 'fast' &&
-      this.isEntryTriggerMet(_allTicks)
+    let won: boolean;
+    if (contract.contractType === 'ONLY_UP') {
+      won = Boolean(contract.allStrictUp);
+    } else if (contract.contractType === 'ONLY_DOWN') {
+      won = Boolean(contract.allStrictDown);
+    } else if (
+      contract.contractType === 'HIGH_TICK' ||
+      contract.contractType === 'LOW_TICK'
     ) {
-      this.openNewContract(exitTick);
+      const targetTick = Math.min(5, Math.max(1, Math.round(Number(contract.prediction) || 5)));
+      const windowQuotes =
+        contract.observedQuotes && contract.observedQuotes.length >= 5
+          ? contract.observedQuotes.slice(0, 5)
+          : allTicks.slice(-5).map((t) => t.quote);
+      const chosenQuote = windowQuotes[targetTick - 1];
+      if (chosenQuote === undefined || windowQuotes.length < 5) {
+        won = false;
+      } else if (contract.contractType === 'HIGH_TICK') {
+        won = windowQuotes.every((q, idx) => idx === targetTick - 1 || chosenQuote > q);
+      } else {
+        won = windowQuotes.every((q, idx) => idx === targetTick - 1 || chosenQuote < q);
+      }
+    } else {
+      won = this.checkWinCondition(
+        contract.contractType,
+        contract.prediction,
+        contract.entryTick,
+        exitTick
+      );
+    }
+
+    const resolvedPredictionLabel =
+      contract.contractType === 'HIGH_TICK' || contract.contractType === 'LOW_TICK'
+        ? Math.min(5, Math.max(1, Math.round(Number(contract.prediction) || 5)))
+        : contract.prediction;
+
+    this.finalizeTrade(
+      won,
+      contract.stake,
+      contract.entryTick,
+      exitTick,
+      marketId,
+      contract.contractType,
+      resolvedPredictionLabel,
+      contract.duration
+    );
+
+    if (!this.isRunning || this.isPaused) return;
+
+    // Once initial entry point is confirmed, trades execute continuously (with <=10s 5m candle close guard)
+    if (this.config.botSpeed === 'fast') {
+      this.openNewContract(exitTick, allTicks);
     }
   }
 
@@ -449,15 +849,19 @@ export class NormalBotExecutor {
       case 'ODD':
         return digit % 2 !== 0;
       case 'RISE':
-      case 'HIGHER':
-        return exitTick.quote > entryTick.quote;
       case 'FALL':
+      case 'HIGHER':
       case 'LOWER':
-        return exitTick.quote < entryTick.quote;
       case 'ONLY_UP':
-        return exitTick.quote > entryTick.quote;
       case 'ONLY_DOWN':
-        return exitTick.quote < entryTick.quote;
+      case 'HIGH_TICK':
+      case 'LOW_TICK':
+        return contractType === 'RISE' ||
+          contractType === 'HIGHER' ||
+          contractType === 'ONLY_UP' ||
+          contractType === 'HIGH_TICK'
+          ? exitTick.quote > entryTick.quote
+          : exitTick.quote < entryTick.quote;
       default:
         return digit > predDigit;
     }
@@ -468,19 +872,40 @@ export class NormalBotExecutor {
     stakeUsed: number,
     entryTick: Tick,
     exitTick: Tick,
-    marketId: string
+    marketId: string,
+    executedContractType?: TradeContractType,
+    executedPrediction?: number | string,
+    executedDurationTicks?: number
   ) {
-    const { contractType, prediction } = this.config;
-    const payoutMultiplier = this.getPayoutMultiplier(contractType, prediction);
+    const contractType = executedContractType ?? this.config.contractType;
+    const prediction = executedPrediction ?? this.config.prediction;
+    const payoutMultiplier = this.getPayoutMultiplier(
+      contractType,
+      prediction,
+      executedDurationTicks ?? this.config.duration
+    );
     const profit = won ? stakeUsed * (payoutMultiplier - 1) : -stakeUsed;
     this.balance = Number((this.balance + profit).toFixed(2));
 
     let predictionText: string;
-    const digitTypes = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'];
-    if (digitTypes.includes(contractType)) {
-      predictionText = `${contractType} ${prediction}`;
+    if (contractType === 'UNDER') {
+      predictionText = `Under ${prediction}`;
+    } else if (contractType === 'OVER') {
+      predictionText = `Over ${prediction}`;
+    } else if (contractType === 'DIFFERS') {
+      predictionText = `Differs ${prediction}`;
+    } else if (contractType === 'MATCHES') {
+      predictionText = `Matches ${prediction}`;
+    } else if (contractType === 'ONLY_UP') {
+      predictionText = 'Only Up';
+    } else if (contractType === 'ONLY_DOWN') {
+      predictionText = 'Only Down';
+    } else if (contractType === 'HIGH_TICK') {
+      predictionText = `High Tick #${prediction}`;
+    } else if (contractType === 'LOW_TICK') {
+      predictionText = `Low Tick #${prediction}`;
     } else {
-      predictionText = `${contractType} (${prediction})`;
+      predictionText = `${contractType}`;
     }
 
     if (won) {
@@ -554,5 +979,16 @@ export class NormalBotExecutor {
     }
 
     this.onTradeListeners.forEach((l) => l(tradeRecord, this.metrics, this.balance));
+
+    if (this.metrics.totalProfit >= this.config.takeProfit) {
+      this.stop(`Take Profit reached (+${this.metrics.totalProfit.toFixed(2)}$)`);
+      try {
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+      } catch {}
+      return;
+    }
+    if (this.metrics.totalProfit <= -Math.abs(this.config.stopLoss)) {
+      this.stop(`Stop Loss reached (${this.metrics.totalProfit.toFixed(2)}$)`);
+    }
   }
 }

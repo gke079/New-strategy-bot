@@ -589,10 +589,13 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
           <label className="text-xs font-semibold text-neutral-700">Take profit</label>
           <input
             type="number"
-            min="1"
-            step="5"
+            min="0.1"
+            step="0.1"
             value={config.takeProfit}
-            onChange={(e) => onUpdateConfig({ takeProfit: parseFloat(e.target.value) || 10 })}
+            onChange={(e) => {
+              const parsed = parseFloat(e.target.value);
+              onUpdateConfig({ takeProfit: Number.isNaN(parsed) ? 0.1 : Math.max(0.1, parsed) });
+            }}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>

@@ -175,7 +175,7 @@ export interface XmlBotConfig {
   id: string;
   name: string;
   marketId: string;
-  contractCategory: 'digits' | 'callput';
+  contractCategory: 'digits' | 'callput' | 'highlowticks';
   contractType: TradeContractType;
   prediction: number;
   duration: number;
@@ -208,7 +208,13 @@ export interface XmlBotConfig {
 export type SignalEntryTrigger =
   | 'immediate'
   | 'even_after_2_odd_confirm'
-  | 'odd_after_2_even_confirm';
+  | 'odd_after_2_even_confirm'
+  | 'under_after_3_opp_confirm'
+  | 'over_after_3_opp_confirm'
+  | 'only_up_after_down_confirm'
+  | 'only_down_after_up_confirm'
+  | 'high_tick_3_rising_confirm'
+  | 'low_tick_3_falling_confirm';
 
 export interface NormalBotConfig {
   id: string;

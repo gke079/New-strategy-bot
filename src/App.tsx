@@ -30,7 +30,11 @@ import { LastDigitsRibbon } from './components/LastDigitsRibbon';
 import { BotStrategyPanel } from './components/BotStrategyPanel';
 import { NormalBotPanel } from './components/NormalBotPanel';
 import { BotBuilderView } from './components/BotBuilderView';
-import { SignalsView, SignalExecutionRequest } from './components/SignalsView';
+import {
+  SignalsView,
+  SignalExecutionRequest,
+  ActiveSignalSession,
+} from './components/SignalsView';
 import { ChartsView } from './components/ChartsView';
 import { TradesHistoryView } from './components/TradesHistoryView';
 import { BottomNavigation, ActiveTab } from './components/BottomNavigation';
@@ -115,10 +119,10 @@ export default function App() {
       initialStake: 1.0,
       martingale: 2.0,
       maxSteps: 4,
-      takeProfit: 10.0,
+      takeProfit: 0.1,
       stopLoss: 20.0,
       active: false,
-      executionMode: 'reanalyse',
+      executionMode: 'continuous',
     };
   });
 
@@ -158,10 +162,10 @@ export default function App() {
       initialStake: 1.0,
       martingale: 2.0,
       maxSteps: 4,
-      takeProfit: 15.0,
+      takeProfit: 0.1,
       stopLoss: 25.0,
       active: false,
-      executionMode: 'reanalyse',
+      executionMode: 'continuous',
     };
   });
 
@@ -185,8 +189,29 @@ export default function App() {
   const [floatingBotSelection, setFloatingBotSelection] = useState<'normal' | 'strategy'>('normal');
   const [normalBotConfig, setNormalBotConfig] = useState<NormalBotConfig>(() => {
     try {
+      const migratedTp = localStorage.getItem('tickedge_tp_default_0_1_v1');
       const saved = localStorage.getItem('tickedge_normal_bot_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        let next = parsed;
+        if (parsed.contractType === 'ENDS_BETWEEN' || parsed.contractType === 'ENDS_OUTSIDE') {
+          next = {
+            ...next,
+            contractType: 'HIGH_TICK',
+            prediction: 5,
+            duration: 5,
+            durationUnit: 't',
+            signalEntryTrigger: 'immediate',
+          };
+        }
+        if (!migratedTp) {
+          next = { ...next, takeProfit: 0.1 };
+          localStorage.setItem('tickedge_tp_default_0_1_v1', '1');
+          localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(next));
+        }
+        return next;
+      }
+      localStorage.setItem('tickedge_tp_default_0_1_v1', '1');
     } catch {}
     return {
       id: 'normal-bot',
@@ -198,7 +223,7 @@ export default function App() {
       initialStake: 1.0,
       duration: 1,
       durationUnit: 't',
-      takeProfit: 10.0,
+      takeProfit: 0.1,
       stopLoss: 20.0,
       martingale: 2.0,
       martingaleLevel: 4,
@@ -221,6 +246,8 @@ export default function App() {
   const [normalBotStake, setNormalBotStake] = useState<number>(normalBotConfig.stake);
   const [normalBotStep, setNormalBotStep] = useState<number>(0);
   const [normalBotActiveContract, setNormalBotActiveContract] = useState<ActiveContract | null>(null);
+  const [normalBotWaitingForEntry, setNormalBotWaitingForEntry] = useState<boolean>(false);
+  const [normalBotEntryStatus, setNormalBotEntryStatus] = useState<string>('');
 
   // ==========================================
   // 4. DERIV XML BOT BUILDER (BLOCKLY & STRUCTURED)
@@ -249,9 +276,8 @@ export default function App() {
     peakBalance: 10000,
   });
 
-  // Active Signal metadata running on Normal Bot
-  const [activeSignalMarketId, setActiveSignalMarketId] = useState<string | null>(null);
-  const [activeSignalLabel, setActiveSignalLabel] = useState<string | null>(null);
+  // Active Signal session running on Normal Bot (strictly scoped by category)
+  const [activeSignal, setActiveSignal] = useState<ActiveSignalSession | null>(null);
 
   // Unified trades history
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -334,7 +360,7 @@ export default function App() {
       setNormalBotRunning(running);
       if (!running) {
         setNormalBotPaused(false);
-        setActiveSignalMarketId(null);
+        setActiveSignal(null);
       }
     });
 
@@ -344,6 +370,11 @@ export default function App() {
 
     const unsubNormalProgress = normalBot.onContractProgress((activeContract) => {
       setNormalBotActiveContract(activeContract);
+    });
+
+    const unsubNormalEntryWait = normalBot.onEntryWaitChange((waiting, statusText) => {
+      setNormalBotWaitingForEntry(waiting);
+      setNormalBotEntryStatus(statusText);
     });
 
     // Listen to XML Bot trades, status & journal
@@ -478,6 +509,7 @@ export default function App() {
       unsubNormalStatus();
       unsubNormalPause();
       unsubNormalProgress();
+      unsubNormalEntryWait();
       unsubXmlTrade();
       unsubXmlStatus();
       unsubXmlJournal();
@@ -681,6 +713,15 @@ export default function App() {
 
   const handleStartNormalBot = () => {
     if (normalBotExecutorRef.current) {
+      setActiveSignal(null);
+      if (normalBotConfig.signalEntryTrigger && normalBotConfig.signalEntryTrigger !== 'immediate') {
+        const cleaned = { ...normalBotConfig, signalEntryTrigger: 'immediate' as const };
+        setNormalBotConfig(cleaned);
+        try {
+          localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(cleaned));
+        } catch {}
+        normalBotExecutorRef.current.updateConfig(cleaned);
+      }
       normalBotExecutorRef.current.start();
     }
   };
@@ -809,10 +850,21 @@ export default function App() {
     engineRef.current?.setMarket(req.market);
 
     // 2. Sync Normal Bot configuration with the Signal parameters
+    const isOnlyUpDown =
+      req.contractType === 'ONLY_UP' || req.contractType === 'ONLY_DOWN';
+    const isHighLowTick =
+      req.contractType === 'HIGH_TICK' || req.contractType === 'LOW_TICK';
     const resolvedPrediction =
-      req.contractType === 'EVEN' || req.contractType === 'ODD'
+      req.contractType === 'EVEN' || req.contractType === 'ODD' || isOnlyUpDown
         ? req.contractType
+        : isHighLowTick
+        ? Math.min(5, Math.max(1, Math.round(req.prediction || 5)))
         : req.prediction;
+    const resolvedTicks = isOnlyUpDown
+      ? Math.min(5, Math.max(2, Math.round(req.ticks || 2)))
+      : isHighLowTick
+      ? 5
+      : Math.min(10, Math.max(1, Math.round(req.ticks || 1)));
 
     const updatedNormal: NormalBotConfig = {
       ...normalBotConfig,
@@ -823,7 +875,7 @@ export default function App() {
       signalEntryTrigger: req.signalEntryTrigger,
       stake: req.stake,
       initialStake: req.stake,
-      duration: 1,
+      duration: resolvedTicks,
       durationUnit: 't',
       martingale: req.martingale,
       takeProfit: req.takeProfit,
@@ -838,18 +890,25 @@ export default function App() {
     normalBotExecutorRef.current.updateConfig(updatedNormal);
     setNormalBotStake(req.stake);
     setNormalBotStep(0);
-    setActiveSignalMarketId(req.market.id);
-    setActiveSignalLabel(req.signalLabel);
+    setActiveSignal({
+      category: req.category,
+      marketId: req.market.id,
+      marketName: req.market.name,
+      contractType: req.contractType,
+      prediction: req.prediction,
+      ticks: resolvedTicks,
+      signalLabel: req.signalLabel,
+      signalTone: req.signalTone,
+      entryConfidencePct: req.entryConfidencePct,
+      payoutMultiplier: req.payoutMultiplier,
+      distributionSubtext: req.distributionSubtext,
+      patternSummary: req.patternSummary,
+    });
     setBotsTabSubView('normal');
     setFloatingBotSelection('normal');
 
-    // 3. Start Normal Bot and immediately open the first contract
+    // 3. Start Normal Bot armed; it waits on incoming live ticks for the entry confirmation pattern, then trades continuously
     normalBotExecutorRef.current.start();
-    const currentMarketTicks = engineRef.current?.getTicks() || [];
-    if (currentMarketTicks.length > 0) {
-      const latest = currentMarketTicks[currentMarketTicks.length - 1];
-      normalBotExecutorRef.current.evaluateTick(latest, currentMarketTicks, req.market.id);
-    }
   };
 
   // Reset user balance (updates all executors)
@@ -975,7 +1034,12 @@ export default function App() {
               theme={theme}
               onSelectDigit={(d) => {
                 handleUpdateDigitsBotConfig({ predictionDigit: d, xDigit: d });
-                handleUpdateNormalBotConfig({ prediction: d });
+                if (
+                  !normalBotRunning &&
+                  ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(normalBotConfig.contractType)
+                ) {
+                  handleUpdateNormalBotConfig({ prediction: d });
+                }
                 handleUpdateChartsBotConfig({ predictionDigit: d, xDigit: d });
               }}
             />
@@ -1022,10 +1086,11 @@ export default function App() {
               setActiveTab('bots');
             }}
             normalBotRunning={normalBotRunning}
+            normalBotWaitingForEntry={normalBotWaitingForEntry}
+            normalBotEntryStatus={normalBotEntryStatus}
             normalBotStake={normalBotStake}
             normalBotMetrics={normalBotMetrics}
-            activeSignalMarketId={activeSignalMarketId}
-            activeSignalLabel={activeSignalLabel}
+            activeSignal={activeSignal}
             theme={theme}
           />
         )}
@@ -1040,7 +1105,12 @@ export default function App() {
               layout="horizontal"
               theme={theme}
               onSelectDigit={(d) => {
-                handleUpdateNormalBotConfig({ prediction: d });
+                if (
+                  !normalBotRunning &&
+                  ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(normalBotConfig.contractType)
+                ) {
+                  handleUpdateNormalBotConfig({ prediction: d });
+                }
                 handleUpdateChartsBotConfig({ predictionDigit: d, xDigit: d });
               }}
             />
@@ -1189,6 +1259,8 @@ export default function App() {
         }}
         normalBotRunning={normalBotRunning}
         normalBotPaused={normalBotPaused}
+        normalBotWaitingForEntry={normalBotWaitingForEntry}
+        normalBotEntryStatus={normalBotEntryStatus}
         normalBotStake={normalBotStake}
         normalBotStep={normalBotStep}
         normalBotMetrics={normalBotMetrics}
@@ -1222,7 +1294,7 @@ export default function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         digitsBotRunning={digitsBotRunning}
-        signalBotRunning={normalBotRunning && activeSignalMarketId !== null}
+        signalBotRunning={normalBotRunning && activeSignal !== null}
         chartsBotRunning={chartsBotRunning || normalBotRunning}
         xmlBotRunning={xmlBotRunning}
         theme={theme}

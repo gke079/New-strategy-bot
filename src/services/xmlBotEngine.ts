@@ -21,6 +21,7 @@ interface ActiveXmlContract {
   ticksRemaining: number;
   startTime: number;
   endTime?: number;
+  observedQuotes?: number[];
 }
 
 export class XmlBotExecutor {
@@ -212,8 +213,15 @@ export class XmlBotExecutor {
       this.stage = 'during_purchase';
       const contract = this.activeContract;
 
-      // Optional Early Sell at Profit during multi-tick / timed contracts
-      if (this.config.enableSellAtProfit && contract.ticksRemaining > 1) {
+      const isHighLowTick =
+        contract.contractType === 'HIGH_TICK' || contract.contractType === 'LOW_TICK';
+      if (isHighLowTick) {
+        if (!contract.observedQuotes) contract.observedQuotes = [];
+        contract.observedQuotes.push(tick.quote);
+      }
+
+      // Optional Early Sell at Profit during multi-tick / timed contracts (not supported on High/Low Tick)
+      if (!isHighLowTick && this.config.enableSellAtProfit && contract.ticksRemaining > 1) {
         const floatingWin = this.checkWinCondition(
           contract.contractType,
           contract.prediction,
@@ -274,8 +282,12 @@ export class XmlBotExecutor {
         ? this.config.alternateContractType
         : this.config.contractType;
 
-    const unit = this.config.durationUnit || 't';
-    const rawDur = Math.max(1, Math.round(this.config.duration || 1));
+    const isHighLowTick = activeContractType === 'HIGH_TICK' || activeContractType === 'LOW_TICK';
+    const unit = isHighLowTick ? 't' : this.config.durationUnit || 't';
+    const rawDur = isHighLowTick ? 5 : Math.max(1, Math.round(this.config.duration || 1));
+    const effectivePred = isHighLowTick
+      ? Math.max(1, Math.min(5, Math.round(this.config.prediction || 3)))
+      : this.config.prediction;
     const nowMs = Date.now();
     const endTime =
       unit === 'm' ? nowMs + rawDur * 60000 : unit === 's' ? nowMs + rawDur * 1000 : undefined;
@@ -284,13 +296,14 @@ export class XmlBotExecutor {
       id: 'XML-' + nowMs.toString(36),
       entryTick: tick,
       contractType: activeContractType,
-      prediction: this.config.prediction,
+      prediction: effectivePred,
       stake: stakeToUse,
       duration: rawDur,
       durationUnit: unit,
       ticksRemaining: rawDur,
       startTime: nowMs,
       endTime,
+      observedQuotes: isHighLowTick ? [] : undefined,
     };
 
     this.stage = 'during_purchase';
@@ -298,8 +311,10 @@ export class XmlBotExecutor {
       'before_purchase',
       'buy',
       `Purchased ${activeContractType}${
-        ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(activeContractType)
-          ? ` ${this.config.prediction}`
+        isHighLowTick
+          ? ` #${effectivePred}`
+          : ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(activeContractType)
+          ? ` ${effectivePred}`
           : ''
       } · Stake $${stakeToUse.toFixed(2)} @ ${tick.quoteFormatted} (Digit ${tick.lastDigit})`
     );
@@ -376,6 +391,9 @@ export class XmlBotExecutor {
       case 'ONLY_UP':
       case 'ONLY_DOWN':
         return 3.85;
+      case 'HIGH_TICK':
+      case 'LOW_TICK':
+        return 4.2;
       default:
         return 1.95;
     }
@@ -421,13 +439,42 @@ export class XmlBotExecutor {
     const contract = this.activeContract;
     this.activeContract = null;
 
-    const won = this.checkWinCondition(
-      contract.contractType,
-      contract.prediction,
+    let won: boolean;
+    if (contract.contractType === 'HIGH_TICK' || contract.contractType === 'LOW_TICK') {
+      const quotes = contract.observedQuotes || [];
+      const targetTick = Math.max(1, Math.min(5, Math.round(contract.prediction || 1)));
+      if (quotes.length < 5) {
+        won = false;
+      } else {
+        const windowQuotes = quotes.slice(0, 5);
+        const pickedQuote = windowQuotes[targetTick - 1];
+        if (contract.contractType === 'HIGH_TICK') {
+          const maxOther = Math.max(...windowQuotes.filter((_, idx) => idx !== targetTick - 1));
+          won = pickedQuote > maxOther;
+        } else {
+          const minOther = Math.min(...windowQuotes.filter((_, idx) => idx !== targetTick - 1));
+          won = pickedQuote < minOther;
+        }
+      }
+    } else {
+      won = this.checkWinCondition(
+        contract.contractType,
+        contract.prediction,
+        contract.entryTick,
+        exitTick
+      );
+    }
+
+    this.finalizeTrade(
+      won,
+      contract.stake,
       contract.entryTick,
-      exitTick
+      exitTick,
+      activeMarketId,
+      undefined,
+      contract.contractType,
+      contract.prediction
     );
-    this.finalizeTrade(won, contract.stake, contract.entryTick, exitTick, activeMarketId);
   }
 
   private finalizeTrade(
@@ -436,15 +483,19 @@ export class XmlBotExecutor {
     entryTick: Tick,
     exitTick: Tick,
     activeMarketId: string,
-    overrideProfit?: number
+    overrideProfit?: number,
+    executedContractType?: TradeContractType,
+    executedPrediction?: number
   ) {
     this.stage = 'after_purchase';
     const contractType =
-      this.config.alternateContractOnLoss && this.useAlternateNext
+      executedContractType ??
+      (this.config.alternateContractOnLoss && this.useAlternateNext
         ? this.config.alternateContractType
-        : this.config.contractType;
+        : this.config.contractType);
+    const predDigit = executedPrediction ?? this.config.prediction;
 
-    const mult = this.getPayoutMultiplier(contractType, this.config.prediction);
+    const mult = this.getPayoutMultiplier(contractType, predDigit);
     const profit =
       overrideProfit !== undefined ? overrideProfit : won ? stakeUsed * (mult - 1) : -stakeUsed;
     this.balance = Number((this.balance + profit).toFixed(2));
@@ -521,10 +572,20 @@ export class XmlBotExecutor {
       peakBalance: peak,
     };
 
-    const digitTypes = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'];
-    const predictionLabel = digitTypes.includes(contractType)
-      ? `${contractType} ${this.config.prediction}`
-      : contractType;
+    const predictionLabel =
+      contractType === 'HIGH_TICK'
+        ? `High Tick #${predDigit}`
+        : contractType === 'LOW_TICK'
+        ? `Low Tick #${predDigit}`
+        : contractType === 'UNDER'
+        ? `Under ${predDigit}`
+        : contractType === 'OVER'
+        ? `Over ${predDigit}`
+        : contractType === 'DIFFERS'
+        ? `Differs ${predDigit}`
+        : contractType === 'MATCHES'
+        ? `Matches ${predDigit}`
+        : contractType;
 
     const tradeRecord: Trade = {
       id: 'XTR-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),

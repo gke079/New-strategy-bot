@@ -65,6 +65,10 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
   const digitTypes = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'];
   const isDigitContract = digitTypes.includes(config.contractType);
   const isEvenOddContract = config.contractType === 'EVEN' || config.contractType === 'ODD';
+  const isOnlyUpDownContract =
+    config.contractType === 'ONLY_UP' || config.contractType === 'ONLY_DOWN';
+  const isHighLowTickContract =
+    config.contractType === 'HIGH_TICK' || config.contractType === 'LOW_TICK';
   const isRiseFallContract = config.contractType === 'RISE' || config.contractType === 'FALL' || config.contractType === 'HIGHER' || config.contractType === 'LOWER';
 
   const tradeCategories: {
@@ -85,28 +89,49 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
     {
       category: 'Price Movement',
       options: [
+        { value: 'ONLY_UP', label: 'Only Ups' },
+        { value: 'ONLY_DOWN', label: 'Only Downs' },
         { value: 'RISE', label: 'Rise (Call)' },
         { value: 'FALL', label: 'Fall (Put)' },
         { value: 'HIGHER', label: 'Higher' },
         { value: 'LOWER', label: 'Lower' },
       ],
     },
+    {
+      category: 'High / Low Ticks',
+      options: [
+        { value: 'HIGH_TICK', label: 'High Tick' },
+        { value: 'LOW_TICK', label: 'Low Tick' },
+      ],
+    },
   ];
 
   const handleContractChange = (newContract: TradeContractType) => {
     let defaultPrediction = config.prediction;
+    let nextDuration = config.duration;
+    let nextDurationUnit = config.durationUnit;
     if (digitTypes.includes(newContract)) {
       if (typeof config.prediction !== 'number' || isNaN(Number(config.prediction))) {
         defaultPrediction = newContract === 'OVER' ? 2 : newContract === 'UNDER' ? 7 : 5;
       }
     } else if (newContract === 'EVEN' || newContract === 'ODD') {
       defaultPrediction = newContract;
+    } else if (newContract === 'ONLY_UP' || newContract === 'ONLY_DOWN') {
+      defaultPrediction = newContract;
+      nextDuration = Math.max(2, config.duration || 2);
+    } else if (newContract === 'HIGH_TICK' || newContract === 'LOW_TICK') {
+      const numPred = Number(config.prediction);
+      defaultPrediction = numPred >= 1 && numPred <= 5 ? Math.round(numPred) : 5;
+      nextDuration = 5;
+      nextDurationUnit = 't';
     } else if (newContract === 'RISE' || newContract === 'FALL') {
       defaultPrediction = newContract;
     }
     onUpdateConfig({
       contractType: newContract,
       prediction: defaultPrediction,
+      duration: nextDuration,
+      durationUnit: nextDurationUnit,
       signalEntryTrigger: 'immediate',
     });
   };
@@ -275,7 +300,32 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
               </span>
             ) : activeContract ? (
               <span className="text-emerald-700 font-bold">
-                {activeContract.speedMode === 'normal' && activeContract.stepState === 'skipped' ? (
+                {activeContract.contractType === 'ONLY_UP' ||
+                activeContract.contractType === 'ONLY_DOWN' ? (
+                  <>
+                    <span className="text-emerald-800">
+                      {activeContract.contractType === 'ONLY_UP' ? 'Only Up ▲' : 'Only Down ▼'} (Entry: {activeContract.entryPrice})
+                    </span>
+                    <span className="mx-1">➔</span>
+                    <span className="text-neutral-600">
+                      {activeContract.ticksRemaining ?? 1} tick(s) remaining
+                    </span>
+                  </>
+                ) : activeContract.contractType === 'HIGH_TICK' ||
+                  activeContract.contractType === 'LOW_TICK' ? (
+                  <>
+                    <span className="text-emerald-800">
+                      {activeContract.contractType === 'HIGH_TICK'
+                        ? `High Tick #${activeContract.prediction}`
+                        : `Low Tick #${activeContract.prediction}`}{' '}
+                      (Entry: {activeContract.entryPrice})
+                    </span>
+                    <span className="mx-1">➔</span>
+                    <span className="text-neutral-600">
+                      {activeContract.ticksRemaining ?? 1} / 5 tick(s) remaining
+                    </span>
+                  </>
+                ) : activeContract.hasSkipTick && activeContract.stepState === 'skipped' ? (
                   <>
                     <span className="text-neutral-600">Entry: {activeContract.entryDigit}</span>
                     <span className="mx-1">➔</span>
@@ -285,13 +335,23 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
                     <span className="mx-1">➔</span>
                     <span className="text-emerald-700">Waiting for Exit Digit...</span>
                   </>
-                ) : activeContract.speedMode === 'normal' ? (
+                ) : activeContract.hasSkipTick ? (
                   <>
                     <span className="text-emerald-800">
                       Entry Digit: {activeContract.entryDigit} (Quote: {activeContract.entryPrice})
                     </span>
                     <span className="mx-1">➔</span>
                     <span className="text-neutral-500">Next tick will be skipped...</span>
+                  </>
+                ) : activeContract.durationUnit === 't' && (activeContract.duration ?? 1) > 1 ? (
+                  <>
+                    <span className="text-emerald-800">
+                      Entry Digit: {activeContract.entryDigit} (Quote: {activeContract.entryPrice})
+                    </span>
+                    <span className="mx-1">➔</span>
+                    <span className="text-neutral-600">
+                      {activeContract.ticksRemaining ?? activeContract.duration} tick(s) remaining
+                    </span>
                   </>
                 ) : (
                   <>
@@ -363,7 +423,11 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
         {/* Field 3: Prediction */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">
-            {isDigitContract ? 'Prediction digit' : 'Prediction'}
+            {isDigitContract
+              ? 'Prediction digit'
+              : isHighLowTickContract
+              ? 'Predicted tick (1–5)'
+              : 'Prediction'}
           </label>
           {isDigitContract ? (
             <input
@@ -374,6 +438,27 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
               onChange={(e) => onUpdateConfig({ prediction: parseInt(e.target.value, 10) || 0 })}
               className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
             />
+          ) : isHighLowTickContract ? (
+            <div className="relative">
+              <select
+                value={Math.min(5, Math.max(1, Number(config.prediction) || 5))}
+                onChange={(e) =>
+                  onUpdateConfig({
+                    prediction: Math.min(5, Math.max(1, parseInt(e.target.value, 10) || 5)),
+                    duration: 5,
+                    durationUnit: 't',
+                  })
+                }
+                className="w-full appearance-none px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 cursor-pointer"
+              >
+                {[1, 2, 3, 4, 5].map((tNum) => (
+                  <option key={tNum} value={tNum} className="bg-white text-neutral-900">
+                    Tick #{tNum}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
           ) : isEvenOddContract ? (
             <div className="relative">
               <select
@@ -383,6 +468,28 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
               >
                 <option value="EVEN" className="bg-white text-neutral-900">EVEN</option>
                 <option value="ODD" className="bg-white text-neutral-900">ODD</option>
+              </select>
+              <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          ) : isOnlyUpDownContract ? (
+            <div className="relative">
+              <select
+                value={config.contractType}
+                onChange={(e) =>
+                  onUpdateConfig({
+                    prediction: e.target.value,
+                    contractType: e.target.value as TradeContractType,
+                    signalEntryTrigger: 'immediate',
+                  })
+                }
+                className="w-full appearance-none px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 cursor-pointer"
+              >
+                <option value="ONLY_UP" className="bg-white text-neutral-900">
+                  ONLY UP
+                </option>
+                <option value="ONLY_DOWN" className="bg-white text-neutral-900">
+                  ONLY DOWN
+                </option>
               </select>
               <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
@@ -414,17 +521,55 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
           <div className="flex gap-1.5">
             <input
               type="number"
-              min="1"
-              max={config.durationUnit === 'm' ? 120 : config.durationUnit === 's' ? 3600 : 10}
-              value={config.duration}
-              onChange={(e) => onUpdateConfig({ duration: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-              className="flex-1 px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
+              min={
+                isHighLowTickContract
+                  ? 5
+                  : (config.durationUnit || 't') === 't'
+                  ? isOnlyUpDownContract
+                    ? 2
+                    : 1
+                  : 1
+              }
+              max={
+                isHighLowTickContract
+                  ? 5
+                  : config.durationUnit === 'm'
+                  ? 120
+                  : config.durationUnit === 's'
+                  ? 3600
+                  : isOnlyUpDownContract
+                  ? 5
+                  : 10
+              }
+              value={isHighLowTickContract ? 5 : config.duration}
+              disabled={isHighLowTickContract}
+              onChange={(e) => {
+                if (isHighLowTickContract) return;
+                const parsed = parseInt(e.target.value, 10) || 1;
+                const minVal =
+                  (config.durationUnit || 't') === 't'
+                    ? isOnlyUpDownContract
+                      ? 2
+                      : 1
+                    : 1;
+                const maxVal =
+                  config.durationUnit === 'm'
+                    ? 120
+                    : config.durationUnit === 's'
+                    ? 3600
+                    : isOnlyUpDownContract
+                    ? 5
+                    : 10;
+                onUpdateConfig({ duration: Math.min(maxVal, Math.max(minVal, parsed)) });
+              }}
+              className="flex-1 px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all disabled:opacity-75"
             />
             <div className="relative w-28">
               <select
-                value={config.durationUnit || 't'}
+                value={isHighLowTickContract ? 't' : config.durationUnit || 't'}
+                disabled={isHighLowTickContract}
                 onChange={(e) => onUpdateConfig({ durationUnit: e.target.value as 't' | 's' | 'm' })}
-                className="w-full appearance-none px-3 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-7 cursor-pointer"
+                className="w-full appearance-none px-3 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-7 cursor-pointer disabled:opacity-75"
               >
                 <option value="t" className="bg-white text-neutral-900">Ticks (t)</option>
                 <option value="s" className="bg-white text-neutral-900">Sec (s)</option>
@@ -488,10 +633,13 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
           <label className="text-xs font-semibold text-neutral-700">Take profit</label>
           <input
             type="number"
-            min="1"
-            step="5"
+            min="0.1"
+            step="0.1"
             value={config.takeProfit}
-            onChange={(e) => onUpdateConfig({ takeProfit: parseFloat(e.target.value) || 10 })}
+            onChange={(e) => {
+              const parsed = parseFloat(e.target.value);
+              onUpdateConfig({ takeProfit: Number.isNaN(parsed) ? 0.1 : Math.max(0.1, parsed) });
+            }}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>

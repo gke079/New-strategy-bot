@@ -409,10 +409,15 @@ export class BotExecutor {
     const payoutMultiplier = this.getPayoutMultiplier(tradeType, predictionDigit);
 
     // Prediction label formatting
-    const digitTradeTypes = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'];
     let predictionText: string;
-    if (digitTradeTypes.includes(tradeType)) {
-      predictionText = `${tradeType} ${predictionDigit}`;
+    if (tradeType === 'UNDER') {
+      predictionText = `Under ${predictionDigit}`;
+    } else if (tradeType === 'OVER') {
+      predictionText = `Over ${predictionDigit}`;
+    } else if (tradeType === 'DIFFERS') {
+      predictionText = `Differs ${predictionDigit}`;
+    } else if (tradeType === 'MATCHES') {
+      predictionText = `Matches ${predictionDigit}`;
     } else {
       predictionText = tradeType.replace('_', ' ');
     }
