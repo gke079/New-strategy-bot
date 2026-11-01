@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Play, Square, Pause, ChevronDown, RotateCcw, Zap, BookmarkCheck, Clock, Repeat, RefreshCw } from 'lucide-react';
 import { BotMetrics, BotStrategyConfig, EntryConditionType, StrategyExecutionMode, TradeContractType, Trade } from '../types';
 import { SYNTHETIC_MARKETS } from '../services/markets';
+import { NumericInput } from './NumericInput';
 
 interface BotStrategyPanelProps {
   config: BotStrategyConfig;
@@ -529,12 +530,13 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Duration</label>
           <div className="flex gap-1.5">
-            <input
-              type="number"
-              min="1"
+            <NumericInput
+              min={1}
               max={config.durationUnit === 'm' ? 120 : config.durationUnit === 's' ? 3600 : 10}
+              step={1}
+              fallbackValue={1}
               value={config.duration}
-              onChange={(e) => onUpdateConfig({ duration: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+              onChange={(val) => onUpdateConfig({ duration: Math.round(val) })}
               className="flex-1 px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
             />
             <div className="relative w-28">
@@ -554,14 +556,18 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Stake</label>
-          <input
-            type="number"
-            min="0.35"
-            step="0.05"
+          <NumericInput
+            min={0.35}
+            step={0.05}
+            fallbackValue={0.35}
             value={config.stake}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value) || 0.35;
-              onUpdateConfig({ stake: val, initialStake: val });
+            onChange={(newStake) => {
+              const wasDoubleStake =
+                Math.abs(config.takeProfit - config.stake * 2) < 0.02 ||
+                config.takeProfit === 0.1 ||
+                config.takeProfit === 0.7;
+              const nextTp = wasDoubleStake ? Number((newStake * 2).toFixed(2)) : config.takeProfit;
+              onUpdateConfig({ stake: newStake, initialStake: newStake, takeProfit: nextTp });
             }}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
@@ -572,24 +578,25 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Martingale ×</label>
-          <input
-            type="number"
-            min="1"
-            step="0.1"
+          <NumericInput
+            min={1}
+            step={0.1}
+            fallbackValue={1.5}
             value={config.martingale}
-            onChange={(e) => onUpdateConfig({ martingale: parseFloat(e.target.value) || 1.5 })}
+            onChange={(val) => onUpdateConfig({ martingale: val })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Max steps</label>
-          <input
-            type="number"
-            min="1"
-            max="15"
+          <NumericInput
+            min={1}
+            max={15}
+            step={1}
+            fallbackValue={4}
             value={config.maxSteps}
-            onChange={(e) => onUpdateConfig({ maxSteps: parseInt(e.target.value, 10) || 1 })}
+            onChange={(val) => onUpdateConfig({ maxSteps: Math.round(val) })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
@@ -598,28 +605,35 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       {/* Row: Take profit & Stop loss */}
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-neutral-700">Take profit</label>
-          <input
-            type="number"
-            min="0.1"
-            step="0.1"
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-neutral-700">Take profit</label>
+            <button
+              type="button"
+              onClick={() => onUpdateConfig({ takeProfit: Number((config.stake * 2).toFixed(2)) })}
+              className="text-[10px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 transition-colors"
+              title="Set Take Profit to 2x stake (Default risk-management ratio)"
+            >
+              2x (${(config.stake * 2).toFixed(2)})
+            </button>
+          </div>
+          <NumericInput
+            min={0.1}
+            step={0.1}
+            fallbackValue={Number((config.stake * 2).toFixed(2))}
             value={config.takeProfit}
-            onChange={(e) => {
-              const parsed = parseFloat(e.target.value);
-              onUpdateConfig({ takeProfit: Number.isNaN(parsed) ? 0.1 : Math.max(0.1, parsed) });
-            }}
+            onChange={(val) => onUpdateConfig({ takeProfit: val })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Stop loss</label>
-          <input
-            type="number"
-            min="1"
-            step="5"
+          <NumericInput
+            min={0.5}
+            step={1}
+            fallbackValue={20}
             value={config.stopLoss}
-            onChange={(e) => onUpdateConfig({ stopLoss: parseFloat(e.target.value) || 20 })}
+            onChange={(val) => onUpdateConfig({ stopLoss: val })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>

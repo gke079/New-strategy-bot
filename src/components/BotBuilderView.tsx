@@ -17,6 +17,7 @@ import {
   parseDerivXmlToConfig,
 } from '../services/derivXmlBridge';
 import { BlocklyWorkspaceCanvas } from './BlocklyWorkspaceCanvas';
+import { NumericInput } from './NumericInput';
 import {
   Blocks,
   Sliders,
@@ -648,14 +649,19 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
 
               <div>
                 <label className="text-xs text-slate-400 font-medium block mb-1">Initial Stake ($)</label>
-                <input
-                  type="number"
+                <NumericInput
                   min={0.35}
-                  step={0.1}
+                  step={0.05}
+                  fallbackValue={0.35}
                   value={config.initialStake}
-                  onChange={(e) =>
-                    updateStructuredField({ initialStake: Math.max(0.35, parseFloat(e.target.value) || 0.35) })
-                  }
+                  onChange={(val) => {
+                    const wasDoubleStake =
+                      Math.abs(config.takeProfit - config.initialStake * 2) < 0.02 ||
+                      config.takeProfit === 0.1 ||
+                      config.takeProfit === 0.7;
+                    const nextTp = wasDoubleStake ? Number((val * 2).toFixed(2)) : config.takeProfit;
+                    updateStructuredField({ initialStake: val, takeProfit: nextTp });
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-white"
                 />
               </div>
@@ -663,15 +669,17 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-slate-400 font-medium block mb-1">Duration</label>
-                  <input
-                    type="number"
+                  <NumericInput
                     min={1}
                     max={60}
+                    step={1}
                     disabled={isHighLowTick}
+                    fallbackValue={isHighLowTick ? 5 : 1}
                     value={isHighLowTick ? 5 : config.duration}
-                    onChange={(e) =>
-                      updateStructuredField({ duration: Math.max(1, parseInt(e.target.value, 10) || 1) })
-                    }
+                    onChange={(val) => {
+                      if (isHighLowTick) return;
+                      updateStructuredField({ duration: Math.round(val) });
+                    }}
                     className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-white disabled:opacity-60"
                   />
                 </div>
@@ -995,48 +1003,47 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
               ) : (
                 <div>
                   <label className="text-xs text-slate-400 font-medium block mb-1">Multiplier Factor (x)</label>
-                  <input
-                    type="number"
+                  <NumericInput
                     min={1.05}
                     step={0.1}
+                    fallbackValue={1.5}
                     value={config.martingaleMultiplier}
-                    onChange={(e) =>
-                      updateStructuredField({
-                        martingaleMultiplier: Math.max(1.05, parseFloat(e.target.value) || 1.5),
-                      })
-                    }
+                    onChange={(val) => updateStructuredField({ martingaleMultiplier: val })}
                     className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-white"
                   />
                 </div>
               )}
 
               <div>
-                <label className="text-xs text-slate-400 font-medium block mb-1">Take Profit ($)</label>
-                <input
-                  type="number"
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-slate-400 font-medium">Take Profit ($)</label>
+                  <button
+                    type="button"
+                    onClick={() => updateStructuredField({ takeProfit: Number((config.initialStake * 2).toFixed(2)) })}
+                    className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 underline decoration-cyan-500/50 cursor-pointer"
+                    title="Set to 2x Initial Stake (Default)"
+                  >
+                    2x (${(config.initialStake * 2).toFixed(2)})
+                  </button>
+                </div>
+                <NumericInput
                   min={0.1}
                   step={0.1}
+                  fallbackValue={Number((config.initialStake * 2).toFixed(2))}
                   value={config.takeProfit}
-                  onChange={(e) => {
-                    const parsed = parseFloat(e.target.value);
-                    updateStructuredField({
-                      takeProfit: Number.isNaN(parsed) ? 0.1 : Math.max(0.1, parsed),
-                    });
-                  }}
+                  onChange={(val) => updateStructuredField({ takeProfit: val })}
                   className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-emerald-400"
                 />
               </div>
 
               <div>
                 <label className="text-xs text-slate-400 font-medium block mb-1">Stop Loss ($)</label>
-                <input
-                  type="number"
+                <NumericInput
                   min={0.5}
                   step={1}
+                  fallbackValue={20}
                   value={config.stopLoss}
-                  onChange={(e) =>
-                    updateStructuredField({ stopLoss: Math.max(0.5, parseFloat(e.target.value) || 20) })
-                  }
+                  onChange={(val) => updateStructuredField({ stopLoss: val })}
                   className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-rose-400"
                 />
               </div>

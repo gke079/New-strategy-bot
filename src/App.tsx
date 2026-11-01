@@ -116,18 +116,20 @@ export default function App() {
   // ==========================================
   const [digitsBotConfig, setDigitsBotConfig] = useState<BotStrategyConfig>(() => {
     try {
-      const v2Migrated = localStorage.getItem('tickedge_defaults_stake035_mg15_ticks_v2');
+      const v3Migrated = localStorage.getItem('tickedge_tp_double_stake_v3');
       const saved = localStorage.getItem('tickedge_digits_bot_strategy');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (!v2Migrated) {
+        if (!v3Migrated) {
+          const s = parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35;
           const next = {
             ...parsed,
-            stake: parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35,
-            initialStake: parsed.initialStake === 1.0 ? 0.35 : parsed.initialStake || 0.35,
+            stake: s,
+            initialStake: s,
             martingale: parsed.martingale === 2.0 ? 1.5 : parsed.martingale || 1.5,
             duration: 1,
             durationUnit: 't' as const,
+            takeProfit: parsed.takeProfit === 0.1 || !parsed.takeProfit ? Number((s * 2).toFixed(2)) : parsed.takeProfit,
           };
           localStorage.setItem('tickedge_digits_bot_strategy', JSON.stringify(next));
           return next;
@@ -145,6 +147,7 @@ export default function App() {
           martingale: 1.5,
           duration: 1,
           durationUnit: 't' as const,
+          takeProfit: 0.7,
         };
       }
     } catch {}
@@ -164,7 +167,7 @@ export default function App() {
       initialStake: 0.35,
       martingale: 1.5,
       maxSteps: 4,
-      takeProfit: 0.1,
+      takeProfit: 0.7,
       stopLoss: 20.0,
       active: false,
       executionMode: 'continuous',
@@ -188,18 +191,20 @@ export default function App() {
   // ==========================================
   const [chartsBotConfig, setChartsBotConfig] = useState<BotStrategyConfig>(() => {
     try {
-      const v2Migrated = localStorage.getItem('tickedge_defaults_stake035_mg15_ticks_v2');
+      const v3Migrated = localStorage.getItem('tickedge_tp_double_stake_v3');
       const saved = localStorage.getItem('tickedge_charts_bot_strategy');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (!v2Migrated) {
+        if (!v3Migrated) {
+          const s = parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35;
           const next = {
             ...parsed,
-            stake: parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35,
-            initialStake: parsed.initialStake === 1.0 ? 0.35 : parsed.initialStake || 0.35,
+            stake: s,
+            initialStake: s,
             martingale: parsed.martingale === 2.0 ? 1.5 : parsed.martingale || 1.5,
             duration: 1,
             durationUnit: 't' as const,
+            takeProfit: parsed.takeProfit === 0.1 || !parsed.takeProfit ? Number((s * 2).toFixed(2)) : parsed.takeProfit,
           };
           localStorage.setItem('tickedge_charts_bot_strategy', JSON.stringify(next));
           return next;
@@ -223,7 +228,7 @@ export default function App() {
       initialStake: 0.35,
       martingale: 1.5,
       maxSteps: 4,
-      takeProfit: 0.1,
+      takeProfit: 0.7,
       stopLoss: 25.0,
       active: false,
       executionMode: 'continuous',
@@ -250,7 +255,7 @@ export default function App() {
   const [floatingBotSelection, setFloatingBotSelection] = useState<'normal' | 'strategy'>('normal');
   const [normalBotConfig, setNormalBotConfig] = useState<NormalBotConfig>(() => {
     try {
-      const v2Migrated = localStorage.getItem('tickedge_defaults_stake035_mg15_ticks_v2');
+      const v3Migrated = localStorage.getItem('tickedge_tp_double_stake_v3');
       const saved = localStorage.getItem('tickedge_normal_bot_config');
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -265,25 +270,26 @@ export default function App() {
             signalEntryTrigger: 'immediate',
           };
         }
-        if (!v2Migrated) {
+        if (!v3Migrated) {
           const isHighLow = next.contractType === 'HIGH_TICK' || next.contractType === 'LOW_TICK';
           const isOnlyUpDown = next.contractType === 'ONLY_UP' || next.contractType === 'ONLY_DOWN';
           const isDigitOrEvenOdd = ['OVER', 'UNDER', 'EVEN', 'ODD', 'DIFFERS', 'MATCHES'].includes(next.contractType);
+          const s = next.stake === 1.0 ? 0.35 : next.stake || 0.35;
           next = {
             ...next,
-            stake: next.stake === 1.0 ? 0.35 : next.stake || 0.35,
-            initialStake: next.initialStake === 1.0 ? 0.35 : next.initialStake || 0.35,
+            stake: s,
+            initialStake: s,
             martingale: next.martingale === 2.0 ? 1.5 : next.martingale || 1.5,
             duration: isHighLow || isOnlyUpDown ? 5 : isDigitOrEvenOdd ? 1 : (next.duration || 1),
             durationUnit: 't' as const,
-            takeProfit: next.takeProfit ?? 0.1,
+            takeProfit: next.takeProfit === 0.1 || !next.takeProfit ? Number((s * 2).toFixed(2)) : next.takeProfit,
           };
-          localStorage.setItem('tickedge_defaults_stake035_mg15_ticks_v2', '1');
+          localStorage.setItem('tickedge_tp_double_stake_v3', '1');
           localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(next));
         }
         return next;
       }
-      localStorage.setItem('tickedge_defaults_stake035_mg15_ticks_v2', '1');
+      localStorage.setItem('tickedge_tp_double_stake_v3', '1');
     } catch {}
     return {
       id: 'normal-bot',
@@ -295,7 +301,7 @@ export default function App() {
       initialStake: 0.35,
       duration: 1,
       durationUnit: 't',
-      takeProfit: 0.1,
+      takeProfit: 0.7,
       stopLoss: 20.0,
       martingale: 1.5,
       martingaleLevel: 4,

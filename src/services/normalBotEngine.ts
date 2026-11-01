@@ -657,19 +657,11 @@ export class NormalBotExecutor {
       this.config.contractType === 'ONLY_UP' ||
       this.config.contractType === 'ONLY_DOWN';
 
-    // Strict 5-minute candle guards:
-    // 1. Opening 1 minute (first 60s): NO TRADE to wait for clear confirmation of the signal.
-    // 2. Closing 20 seconds (<= 20s remaining): NO TRADE to protect against potential change of trend for the incoming candle.
+    // Strict 5-minute candle closing guard:
+    // Closing 20 seconds (<= 20s remaining): NO TRADE to protect against potential change of trend for the incoming candle.
+    // (First 1-minute wait removed as requested: trades start immediately when conditions are met)
     if (is5mGuardedContract) {
       const candle5mSecsLeft = this.get5mCandleSecondsRemaining(tick.epoch);
-      const secInto5mCandle = 300 - candle5mSecsLeft;
-      if (secInto5mCandle < 60) {
-        this.notifyEntryWait(
-          true,
-          `Opening 1m wait (${60 - secInto5mCandle}s left) · Awaiting clear confirmation`
-        );
-        return;
-      }
       if (candle5mSecsLeft <= 20) {
         this.notifyEntryWait(
           true,
@@ -717,14 +709,6 @@ export class NormalBotExecutor {
 
     if (is5mGuarded) {
       const candle5mSecsLeft = this.get5mCandleSecondsRemaining(entryTick.epoch);
-      const secInto5mCandle = 300 - candle5mSecsLeft;
-      if (secInto5mCandle < 60) {
-        this.notifyEntryWait(
-          true,
-          `Opening 1m wait (${60 - secInto5mCandle}s left) · Awaiting clear confirmation`
-        );
-        return;
-      }
       if (candle5mSecsLeft <= 20) {
         this.notifyEntryWait(
           true,

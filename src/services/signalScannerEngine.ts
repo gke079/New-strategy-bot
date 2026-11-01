@@ -2034,14 +2034,13 @@ export class MultiMarketSignalScanner {
     // STAGE 2: Evaluate 5-minute candlestick momentum SECOND, strictly aligned with Stage 1 trend
     const curEval = this.scoreCandle(activeCandle, avgBody, pipUnit);
 
-    // Strict Candle Timing Guards on 5m analysis:
-    // 1. First 1 min (0s - 60s) of the 5m candle: NO TRADE to wait for clear confirmation of the signal.
-    // 2. Last 20 seconds of the 5m candle: NO TRADE to protect against potential change of trend for the incoming candle.
-    const OPENING_GUARD_SEC = 60; // First 1 minute no trade
+    // Strict Candle Timing Guard on 5m analysis:
+    // Closing 20 seconds of the 5m candle: NO TRADE to protect against potential change of trend for the incoming candle.
+    // (First 1 minute wait removed as requested: no delay at candle opening)
     const CLOSING_GUARD_SEC = 20; // Last 20 seconds no trade
-    const isOpeningGuard = secIntoCandle < OPENING_GUARD_SEC;
+    const isOpeningGuard = false;
     const isClosingGuard = candleSecondsLeft <= CLOSING_GUARD_SEC;
-    const inCandleGuard = isOpeningGuard || isClosingGuard;
+    const inCandleGuard = isClosingGuard;
 
     // Brief 3-second initial scan when scanner first mounts before unlocking discovered signals
     const inInitialWarmup = nowSec - this.startedAtSec < 3 && !st.isLiveWs;
@@ -2150,11 +2149,7 @@ export class MultiMarketSignalScanner {
       isScanning = true;
       hasStrongEdge = false;
       entryConfirmedNow = false;
-      if (isOpeningGuard) {
-        scanStatusNote = `Opening 1m guard (${OPENING_GUARD_SEC - secIntoCandle}s left) · Waiting for clear signal confirmation`;
-      } else {
-        scanStatusNote = `Closing 20s guard (${candleSecondsLeft}s left) · Protecting against trend change before new 5m candle`;
-      }
+      scanStatusNote = `Closing 20s guard (${candleSecondsLeft}s left) · Protecting against trend change before new 5m candle`;
     } else if (discoveredSide) {
       const prevPeak =
         st.lockedOnlyUpDown && st.lockedOnlyUpDown.candleEpoch === activeCandle.epoch
@@ -2185,7 +2180,7 @@ export class MultiMarketSignalScanner {
         discoveredSide === 'ONLY_UP'
           ? `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} Bullish ${displayBodyPct}% body (${impulseLabel})`
           : `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} Bearish ${displayBodyPct}% body (${impulseLabel})`;
-      patternSummary = `${confirmCheck.statusText} · Continuous`;
+      patternSummary = `Conditions Met · Ready for your entry (${confirmCheck.statusText})`;
     } else {
       isScanning = true;
       if (trendEval.direction === 'ranging') {
@@ -2347,11 +2342,11 @@ export class MultiMarketSignalScanner {
     const phaseSec = shiftedSec % windowSec;
     const secondsLeft = Math.max(1, windowSec - phaseSec);
     const secIntoCandle = phaseSec;
-    const openingGuardSec = 60; // First 1 minute no trade
+    const openingGuardSec = 0; // Removed 1-minute wait as requested
     const closeGuardSec = 20; // Last 20 seconds no trade
-    const isOpeningGuard = secIntoCandle < openingGuardSec;
+    const isOpeningGuard = false;
     const isClosingGuard = secondsLeft <= closeGuardSec;
-    const noTradeWindow = isOpeningGuard || isClosingGuard;
+    const noTradeWindow = isClosingGuard;
     const pipUnit = Math.pow(10, -st.market.decimals);
 
     const candles =
@@ -2432,11 +2427,10 @@ export class MultiMarketSignalScanner {
     const candleSecondsLeft = Math.max(1, windowSec - phaseSec);
     const secIntoCandle = phaseSec;
 
-    const OPENING_GUARD_SEC = 60; // First 1 minute no trade
     const CLOSING_GUARD_SEC = 20; // Last 20 seconds no trade
-    const isOpeningGuard = secIntoCandle < OPENING_GUARD_SEC;
+    const isOpeningGuard = false;
     const isClosingGuard = candleSecondsLeft <= CLOSING_GUARD_SEC;
-    const inCandleGuard = isOpeningGuard || isClosingGuard;
+    const inCandleGuard = isClosingGuard;
 
     const candles =
       st.candles5m && st.candles5m.length > 0
@@ -2625,10 +2619,7 @@ export class MultiMarketSignalScanner {
     let patternSummary = '';
     let scanStatusNote = '';
 
-    if (isOpeningGuard) {
-      isScanning = true;
-      scanStatusNote = `Opening 1m guard (${OPENING_GUARD_SEC - secIntoCandle}s left) · Waiting for clear signal confirmation`;
-    } else if (isClosingGuard) {
+    if (isClosingGuard) {
       isScanning = true;
       scanStatusNote = `Closing 20s guard (${candleSecondsLeft}s left) · Protecting against trend change before new 5m candle`;
     } else if (!hasBothWicks) {
@@ -2651,7 +2642,7 @@ export class MultiMarketSignalScanner {
         contractType === 'HIGH_TICK'
           ? `${windowLabel} RSI ${rsi5m.toFixed(1)} (<50) · Both Wicks ✔ · ${timerFormatted} left`
           : `${windowLabel} RSI ${rsi5m.toFixed(1)} (>50) · Both Wicks ✔ · ${timerFormatted} left`;
-      patternSummary = `${confirm.statusText} · Continuous (Safe window: 1m–4m40s)`;
+      patternSummary = `Conditions Met (RSI & Both Wicks) · Ready for your entry (${confirm.statusText})`;
     }
 
     const rawWindowWinners =

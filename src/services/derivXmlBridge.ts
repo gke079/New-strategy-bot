@@ -67,7 +67,7 @@ export const DEFAULT_XML_BOT_CONFIG: XmlBotConfig = {
   dalembertUnit: 0.5,
   maxMartingaleSteps: 4,
   resetOnMaxSteps: true,
-  takeProfit: 0.1,
+  takeProfit: 0.7,
   stopLoss: 25.0,
   tradeAgain: true,
   cooldownTicks: 0,
@@ -76,7 +76,7 @@ export const DEFAULT_XML_BOT_CONFIG: XmlBotConfig = {
     { id: 'var_stake', name: 'Stake', initialValue: 0.35 },
     { id: 'var_init_stake', name: 'Initial Stake', initialValue: 0.35 },
     { id: 'var_martingale', name: 'Martingale Multiplier', initialValue: 1.5 },
-    { id: 'var_tp', name: 'Take Profit', initialValue: 0.1 },
+    { id: 'var_tp', name: 'Take Profit', initialValue: 0.7 },
     { id: 'var_sl', name: 'Stop Loss', initialValue: 25.0 },
   ],
 };

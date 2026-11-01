@@ -14,6 +14,7 @@ import {
 import { BotMetrics, NormalBotConfig, Trade, TradeContractType } from '../types';
 import { SYNTHETIC_MARKETS } from '../services/markets';
 import { ActiveContract } from '../services/normalBotEngine';
+import { NumericInput } from './NumericInput';
 
 interface NormalBotPanelProps {
   config: NormalBotConfig;
@@ -283,7 +284,11 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
             ) : (
               <>
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>Run Bot</span>
+                <span>
+                  {isHighLowTickContract || isOnlyUpDownContract
+                    ? 'Start Trade Now'
+                    : 'Run Bot'}
+                </span>
               </>
             )}
           </button>
@@ -374,6 +379,65 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
             <span>Stake: <strong className="text-neutral-900">${currentStake.toFixed(2)}</strong></span>
             <span>•</span>
             <span>Step: <strong className="text-amber-700">{currentStep} / {config.martingaleLevel}</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* 5-Minute Candle Strategy Banner for High/Low Tick and Only Up/Down */}
+      {(isHighLowTickContract || isOnlyUpDownContract) && (
+        <div className="p-3 rounded-xl bg-emerald-50/90 border border-emerald-300 flex flex-col gap-2 text-xs text-neutral-800 shadow-xs">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 font-bold text-emerald-900">
+              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+              <span>5-Minute Candle & RSI Strategy</span>
+            </div>
+            <span className="text-[11px] font-mono font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded border border-emerald-300">
+              Immediate Entry · Closing 20s Guard
+            </span>
+          </div>
+
+          <div className="text-[11px] text-neutral-600 leading-relaxed">
+            Candle rules: Trades start immediately when <strong>RSI and candle conditions are met</strong> (no 1-minute wait). Closing 20s guard (04:40–05:00) protects against trend changes before the new candle.
+          </div>
+
+          {/* Entry Timing Choice */}
+          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-emerald-200 text-xs">
+            <span className="font-semibold text-neutral-700">Entry Execution:</span>
+            <div className="flex items-center gap-1 bg-white p-0.5 rounded-lg border border-neutral-300 text-[11px]">
+              <button
+                type="button"
+                onClick={() => onUpdateConfig({ signalEntryTrigger: 'immediate' })}
+                className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                  !config.signalEntryTrigger || config.signalEntryTrigger === 'immediate'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                On My Click (User Decision)
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  onUpdateConfig({
+                    signalEntryTrigger:
+                      config.contractType === 'HIGH_TICK'
+                        ? 'high_tick_3_rising_confirm'
+                        : config.contractType === 'LOW_TICK'
+                        ? 'low_tick_3_falling_confirm'
+                        : config.contractType === 'ONLY_UP'
+                        ? 'only_up_after_down_confirm'
+                        : 'only_down_after_up_confirm',
+                  })
+                }
+                className={`px-2.5 py-1 rounded font-bold transition-all cursor-pointer ${
+                  config.signalEntryTrigger && config.signalEntryTrigger !== 'immediate'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-neutral-600 hover:text-neutral-900'
+                }`}
+              >
+                Auto Momentum Wait
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -524,8 +588,7 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Duration</label>
           <div className="flex gap-1.5">
-            <input
-              type="number"
+            <NumericInput
               min={
                 isHighLowTickContract
                   ? 5
@@ -547,25 +610,11 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
                   : 10
               }
               value={isHighLowTickContract ? 5 : config.duration}
+              fallbackValue={isHighLowTickContract || isOnlyUpDownContract ? 5 : 1}
               disabled={isHighLowTickContract}
-              onChange={(e) => {
+              onChange={(val) => {
                 if (isHighLowTickContract) return;
-                const parsed = parseInt(e.target.value, 10) || 1;
-                const minVal =
-                  (config.durationUnit || 't') === 't'
-                    ? isOnlyUpDownContract
-                      ? 2
-                      : 1
-                    : 1;
-                const maxVal =
-                  config.durationUnit === 'm'
-                    ? 120
-                    : config.durationUnit === 's'
-                    ? 3600
-                    : isOnlyUpDownContract
-                    ? 5
-                    : 10;
-                onUpdateConfig({ duration: Math.min(maxVal, Math.max(minVal, parsed)) });
+                onUpdateConfig({ duration: Math.round(val) });
               }}
               className="flex-1 px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all disabled:opacity-75"
             />
@@ -591,14 +640,19 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
         {/* Field 5: Stake */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Stake</label>
-          <input
-            type="number"
-            min="0.35"
-            step="0.05"
+          <NumericInput
+            min={0.35}
+            step={0.05}
+            fallbackValue={0.35}
             value={config.stake}
-            onChange={(e) => {
-              const val = parseFloat(e.target.value) || 0.35;
-              onUpdateConfig({ stake: val, initialStake: val });
+            onChange={(newStake) => {
+              // By default let take profit be double the stake for risk management purpose
+              const wasDoubleStake =
+                Math.abs(config.takeProfit - config.stake * 2) < 0.02 ||
+                config.takeProfit === 0.1 ||
+                config.takeProfit === 0.7;
+              const nextTp = wasDoubleStake ? Number((newStake * 2).toFixed(2)) : config.takeProfit;
+              onUpdateConfig({ stake: newStake, initialStake: newStake, takeProfit: nextTp });
             }}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
@@ -607,12 +661,12 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
         {/* Field 6: Martingale */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Martingale ×</label>
-          <input
-            type="number"
-            min="1"
-            step="0.1"
+          <NumericInput
+            min={1}
+            step={0.1}
+            fallbackValue={1.5}
             value={config.martingale}
-            onChange={(e) => onUpdateConfig({ martingale: parseFloat(e.target.value) || 1.5 })}
+            onChange={(newMg) => onUpdateConfig({ martingale: newMg })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
@@ -623,28 +677,36 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
         {/* Field 7: Martingale level (Max steps) */}
         <div className="flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-neutral-700">Martingale level</label>
-          <input
-            type="number"
-            min="1"
-            max="15"
+          <NumericInput
+            min={1}
+            max={15}
+            step={1}
+            fallbackValue={4}
             value={config.martingaleLevel}
-            onChange={(e) => onUpdateConfig({ martingaleLevel: parseInt(e.target.value, 10) || 1 })}
+            onChange={(lvl) => onUpdateConfig({ martingaleLevel: Math.round(lvl) })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
 
         {/* Field 8: Take profit */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-neutral-700">Take profit</label>
-          <input
-            type="number"
-            min="0.1"
-            step="0.1"
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-neutral-700">Take profit</label>
+            <button
+              type="button"
+              onClick={() => onUpdateConfig({ takeProfit: Number((config.stake * 2).toFixed(2)) })}
+              className="text-[10px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 transition-colors"
+              title="Set Take Profit to 2x stake (Default risk-management ratio)"
+            >
+              2x (${(config.stake * 2).toFixed(2)})
+            </button>
+          </div>
+          <NumericInput
+            min={0.1}
+            step={0.1}
+            fallbackValue={Number((config.stake * 2).toFixed(2))}
             value={config.takeProfit}
-            onChange={(e) => {
-              const parsed = parseFloat(e.target.value);
-              onUpdateConfig({ takeProfit: Number.isNaN(parsed) ? 0.1 : Math.max(0.1, parsed) });
-            }}
+            onChange={(tp) => onUpdateConfig({ takeProfit: tp })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>
@@ -656,12 +718,12 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
           {/* Field 9: Stop loss */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-neutral-700">Stop loss</label>
-            <input
-              type="number"
-              min="1"
-              step="5"
+            <NumericInput
+              min={0.5}
+              step={1}
+              fallbackValue={20}
               value={config.stopLoss}
-              onChange={(e) => onUpdateConfig({ stopLoss: parseFloat(e.target.value) || 20 })}
+              onChange={(sl) => onUpdateConfig({ stopLoss: sl })}
               className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
             />
           </div>

@@ -15,7 +15,8 @@ import {
   formatWindowDuration,
 } from '../services/signalScannerEngine';
 import { ChartsView } from './ChartsView';
-import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock } from 'lucide-react';
+import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock, Play, CheckCircle2 } from 'lucide-react';
+import { NumericInput } from './NumericInput';
 
 import robotVol10Img from '../assets/images/robot_vol_10_1793085808144.jpg';
 import robotVol25Img from '../assets/images/robot_vol_25_1793085810352.jpg';
@@ -380,6 +381,15 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   const [category, setCategory] = useState<SignalCategory>('even_odd');
   const [overUnderBarrier, setOverUnderBarrier] = useState<BarrierFilter>('all');
   const [chartMarket, setChartMarket] = useState<Market>(SIGNAL_MARKETS[0]);
+  const [entryTimingModes, setEntryTimingModes] = useState<Record<string, 'user_click' | 'auto_momentum'>>({});
+
+  const getEntryTimingMode = (marketId: string): 'user_click' | 'auto_momentum' => {
+    return entryTimingModes[marketId] ?? 'user_click';
+  };
+
+  const setEntryTimingMode = (marketId: string, mode: 'user_click' | 'auto_momentum') => {
+    setEntryTimingModes((prev) => ({ ...prev, [marketId]: mode }));
+  };
 
   useEffect(() => {
     if (activeSignal?.marketId) {
@@ -432,11 +442,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
     };
   }, []);
 
-  const handleStakeChange = (raw: string) => {
-    const parsed = parseFloat(raw);
-    if (Number.isNaN(parsed)) return;
-    const val = Math.min(9999, Math.max(0.35, parsed));
-    onUpdateNormalBotConfig({ stake: val, initialStake: val });
+  const handleStakeChange = (newStake: number) => {
+    const wasDoubleStake =
+      Math.abs(takeProfit - stake * 2) < 0.02 ||
+      takeProfit === 0.1 ||
+      takeProfit === 0.7;
+    const nextTp = wasDoubleStake ? Number((newStake * 2).toFixed(2)) : takeProfit;
+    onUpdateNormalBotConfig({ stake: newStake, initialStake: newStake, takeProfit: nextTp });
   };
 
   const handleTicksChange = (raw: string) => {
@@ -593,13 +605,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
             <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
               Stake ($)
             </label>
-            <input
-              type="number"
+            <NumericInput
               min={0.35}
               max={9999}
               step={0.05}
+              fallbackValue={0.35}
               value={stake}
-              onChange={(e) => handleStakeChange(e.target.value)}
+              onChange={handleStakeChange}
               className={compactInputClass}
             />
           </div>
@@ -609,13 +621,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
             <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
               Ticks
             </label>
-            <input
-              type="number"
+            <NumericInput
               min={minTicksForTab}
               max={maxTicksForTab}
               step={1}
+              fallbackValue={effectiveDefaultTicks}
               value={ticks}
-              onChange={(e) => handleTicksChange(e.target.value)}
+              onChange={(val) => onUpdateNormalBotConfig({ duration: Math.round(val), durationUnit: 't' })}
               title={`Number of ticks (${minTicksForTab}–${maxTicksForTab})`}
               className={compactInputClass}
             />
@@ -626,29 +638,39 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
             <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
               Martingale
             </label>
-            <input
-              type="number"
+            <NumericInput
               min={1}
               max={9999}
               step={0.1}
+              fallbackValue={1.5}
               value={martingale}
-              onChange={(e) => handleMartingaleChange(e.target.value)}
+              onChange={(val) => onUpdateNormalBotConfig({ martingale: val })}
               className={compactInputClass}
             />
           </div>
 
           {/* Take Profit */}
           <div className="flex flex-col items-start gap-1">
-            <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
-              Take profit
-            </label>
-            <input
-              type="number"
+            <div className="flex items-center justify-between w-full gap-1">
+              <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+                Take profit
+              </label>
+              <button
+                type="button"
+                onClick={() => onUpdateNormalBotConfig({ takeProfit: Number((stake * 2).toFixed(2)) })}
+                className="text-[9px] font-extrabold text-cyan-400 hover:text-cyan-300 cursor-pointer underline decoration-cyan-500/50 whitespace-nowrap"
+                title="Set to 2x Stake (Default risk-management ratio)"
+              >
+                2x (${(stake * 2).toFixed(2)})
+              </button>
+            </div>
+            <NumericInput
               min={0.1}
               max={9999}
               step={0.1}
+              fallbackValue={Number((stake * 2).toFixed(2))}
               value={takeProfit}
-              onChange={(e) => handleTpChange(e.target.value)}
+              onChange={(val) => onUpdateNormalBotConfig({ takeProfit: val })}
               className={compactInputClass}
             />
           </div>
@@ -658,13 +680,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
             <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
               Stop loss
             </label>
-            <input
-              type="number"
-              min={1}
+            <NumericInput
+              min={0.5}
               max={9999}
-              step={5}
+              step={1}
+              fallbackValue={20}
               value={stopLoss}
-              onChange={(e) => handleSlChange(e.target.value)}
+              onChange={(val) => onUpdateNormalBotConfig({ stopLoss: val })}
               className={compactInputClass}
             />
           </div>
@@ -1071,9 +1093,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       />
                       <div className="flex flex-col gap-1 min-w-0">
                         <span className="text-xs sm:text-sm font-extrabold tracking-wide text-white uppercase">
-                          {snap.isOpeningGuard
-                            ? 'NO TRADE · OPENING 1M CONFIRMATION GUARD'
-                            : snap.isClosingGuard
+                          {snap.isClosingGuard
                             ? 'NO TRADE · CLOSING 20S TREND GUARD'
                             : category === 'only_up_down'
                             ? `SCANNING ${snap.scanWindowLabel.toUpperCase()} TREND & MOMENTUM`
@@ -1085,8 +1105,6 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                           className={`w-5 h-1 rounded-full ${
                             snap.isClosingGuard
                               ? 'bg-rose-500'
-                              : snap.isOpeningGuard
-                              ? 'bg-amber-400'
                               : 'bg-cyan-500'
                           }`}
                         />
@@ -1105,9 +1123,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                           : 'bg-slate-800/35 text-slate-500 border-slate-700/60'
                       }`}
                     >
-                      {snap.isOpeningGuard
-                        ? `No trade · First 1m wait (${Math.max(1, 60 - ((snap.scanTotalSeconds - snap.scanSecondsLeft) % snap.scanTotalSeconds))}s left · Awaiting confirmation)`
-                        : snap.isClosingGuard
+                      {snap.isClosingGuard
                         ? `No trade · Closing 20s (${snap.scanSecondsLeft}s left ≤ 20s · Protecting trend shift)`
                         : category === 'only_up_down'
                         ? snap.marketTrend === 'ranging'
@@ -1174,6 +1190,48 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       )}
                     </div>
 
+                    {/* 5m Candle Strategy User Decision Bar */}
+                    {(category === 'high_low_tick' || category === 'only_up_down') && (
+                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/40 flex flex-col gap-1.5 shadow-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-[11px]">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
+                            <span>5m Conditions Met · RSI & Wicks Ready</span>
+                          </div>
+                          <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30 font-bold">
+                            You Decide Entry
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800 text-[11px]">
+                          <span className="text-slate-400 font-medium">Start trade:</span>
+                          <div className="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-700">
+                            <button
+                              type="button"
+                              onClick={() => setEntryTimingMode(snap.market.id, 'user_click')}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                getEntryTimingMode(snap.market.id) === 'user_click'
+                                  ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                                  : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              On My Click (Start Now)
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEntryTimingMode(snap.market.id, 'auto_momentum')}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                                getEntryTimingMode(snap.market.id) === 'auto_momentum'
+                                  ? 'bg-emerald-500 text-slate-950 shadow-xs'
+                                  : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              3-Tick Auto
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {isThisCardRunning ? (
                       <button
                         type="button"
@@ -1191,49 +1249,63 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         </span>
                         <span className="underline shrink-0">Stop</span>
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setChartMarket(snap.market);
-                          onRunSignalOnNormalBot({
-                            category,
-                            market: snap.market,
-                            contractType: snap.contractType,
-                            prediction: snap.prediction,
-                            signalEntryTrigger: snap.signalEntryTrigger,
-                            entryConfirmedNow: snap.entryConfirmedNow,
-                            stake,
-                            ticks,
-                            martingale,
-                            takeProfit,
-                            stopLoss,
-                            signalLabel: snap.signalLabel,
-                            signalTone: snap.signalTone,
-                            entryConfidencePct: snap.entryConfidencePct,
-                            payoutMultiplier: snap.payoutMultiplier,
-                            distributionSubtext: snap.distributionSubtext,
-                            patternSummary: snap.patternSummary,
-                          });
-                        }}
-                        className="w-full py-2.5 px-4 rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] active:scale-[0.99] text-sky-50 text-xs sm:text-sm font-bold flex items-center justify-between cursor-pointer transition-all shadow-xs"
-                      >
-                        <span>Run this signal</span>
-                        <span className="text-[11px] font-medium opacity-90">
-                          {snap.signalEntryTrigger === 'immediate'
-                            ? `Match #${snap.prediction} · Continuous`
-                            : snap.contractType === 'HIGH_TICK'
-                            ? 'Entry: 3 Rising (▲▲▲) → Continuous'
-                            : snap.contractType === 'LOW_TICK'
-                            ? 'Entry: 3 Falling (▼▼▼) → Continuous'
-                            : snap.contractType === 'ONLY_UP'
-                            ? 'Entry: ≥2 Fall → 1 Rise'
-                            : snap.contractType === 'ONLY_DOWN'
-                            ? 'Entry: ≥2 Rise → 1 Fall'
-                            : 'Waits for entry'}
-                        </span>
-                      </button>
-                    )}
+                    ) : (() => {
+                      const is5mStrategy = category === 'high_low_tick' || category === 'only_up_down';
+                      const timingMode = getEntryTimingMode(snap.market.id);
+                      const isUserImmediate = is5mStrategy ? timingMode === 'user_click' : snap.signalEntryTrigger === 'immediate';
+                      const effectiveTrigger: SignalEntryTrigger = isUserImmediate ? 'immediate' : snap.signalEntryTrigger;
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChartMarket(snap.market);
+                            onRunSignalOnNormalBot({
+                              category,
+                              market: snap.market,
+                              contractType: snap.contractType,
+                              prediction: snap.prediction,
+                              signalEntryTrigger: effectiveTrigger,
+                              entryConfirmedNow: isUserImmediate || snap.entryConfirmedNow,
+                              stake,
+                              ticks,
+                              martingale,
+                              takeProfit,
+                              stopLoss,
+                              signalLabel: snap.signalLabel,
+                              signalTone: snap.signalTone,
+                              entryConfidencePct: snap.entryConfidencePct,
+                              payoutMultiplier: snap.payoutMultiplier,
+                              distributionSubtext: snap.distributionSubtext,
+                              patternSummary: snap.patternSummary,
+                            });
+                          }}
+                          className={`w-full py-2.5 px-4 rounded-full text-xs sm:text-sm font-bold flex items-center justify-between cursor-pointer transition-all shadow-xs active:scale-[0.99] ${
+                            isUserImmediate
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40'
+                              : 'bg-[#2563eb] hover:bg-[#1d4ed8] text-sky-50'
+                          }`}
+                        >
+                          <span className="flex items-center gap-1.5">
+                            {isUserImmediate && <Play className="w-3.5 h-3.5 fill-current" />}
+                            <span>{isUserImmediate ? 'Start Trade Now' : 'Run this signal'}</span>
+                          </span>
+                          <span className="text-[11px] font-medium opacity-90">
+                            {isUserImmediate
+                              ? 'User Decision · Immediate Execution'
+                              : snap.contractType === 'HIGH_TICK'
+                              ? 'Entry: 3 Rising (▲▲▲) → Continuous'
+                              : snap.contractType === 'LOW_TICK'
+                              ? 'Entry: 3 Falling (▼▼▼) → Continuous'
+                              : snap.contractType === 'ONLY_UP'
+                              ? 'Entry: ≥2 Fall → 1 Rise'
+                              : snap.contractType === 'ONLY_DOWN'
+                              ? 'Entry: ≥2 Rise → 1 Fall'
+                              : 'Waits for entry'}
+                          </span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 )}
 
