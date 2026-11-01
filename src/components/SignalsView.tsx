@@ -12,9 +12,10 @@ import {
   MultiMarketSignalScanner,
   SIGNAL_MARKETS,
   SignalCategory,
+  formatWindowDuration,
 } from '../services/signalScannerEngine';
 import { ChartsView } from './ChartsView';
-import { Square, RotateCcw, ArrowUpRight, TrendingUp } from 'lucide-react';
+import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock } from 'lucide-react';
 
 import robotVol10Img from '../assets/images/robot_vol_10_1793085808144.jpg';
 import robotVol25Img from '../assets/images/robot_vol_25_1793085810352.jpg';
@@ -181,12 +182,22 @@ const CyberScannerBanner: React.FC<{
   modeLabel: string;
   lastDigit: number;
   candle2mDirection?: 'bullish' | 'bearish' | 'neutral';
+  candleWindowLabel?: string;
   highLowTickReadout?: {
     contractType: 'HIGH_TICK' | 'LOW_TICK';
     targetTick: number;
     rsi5m?: number;
+    windowLabel?: string;
   };
-}> = ({ marketId, marketName, modeLabel, lastDigit, candle2mDirection, highLowTickReadout }) => {
+}> = ({
+  marketId,
+  marketName,
+  modeLabel,
+  lastDigit,
+  candle2mDirection,
+  candleWindowLabel,
+  highLowTickReadout,
+}) => {
   const [imgFailed, setImgFailed] = useState(false);
   const visual = MARKET_ROBOT_VISUALS[marketId] ?? MARKET_ROBOT_VISUALS.R_10;
 
@@ -253,10 +264,10 @@ const CyberScannerBanner: React.FC<{
         </span>
       </div>
 
-      {/* Right Translucent Live Readout Box: 2m Candle Direction, High/Low Tick 5m RSI, or Last Digit */}
+      {/* Right Translucent Live Readout Box: Candle Direction with Market Window, High/Low Tick RSI, or Last Digit */}
       {candle2mDirection ? (
         <div
-          className={`absolute right-3.5 bottom-2.5 w-13 h-15 sm:w-14 sm:h-16 rounded-xl backdrop-blur-xs border flex flex-col items-center justify-center shadow-xs ${
+          className={`absolute right-3.5 bottom-2.5 w-14 h-15 sm:w-15 sm:h-16 rounded-xl backdrop-blur-xs border flex flex-col items-center justify-center shadow-xs px-1 ${
             candle2mDirection === 'bullish'
               ? 'bg-emerald-100/90 border-emerald-400 text-emerald-700'
               : candle2mDirection === 'bearish'
@@ -264,7 +275,9 @@ const CyberScannerBanner: React.FC<{
               : 'bg-slate-100/85 border-slate-300/90 text-slate-700'
           }`}
         >
-          <span className="text-[10px] font-mono font-bold leading-none">2m</span>
+          <span className="text-[9px] font-mono font-extrabold leading-none uppercase">
+            {candleWindowLabel || '2m'}
+          </span>
           <span className="font-mono text-2xl sm:text-3xl font-extrabold leading-tight select-none">
             {candle2mDirection === 'bullish' ? '▲' : candle2mDirection === 'bearish' ? '▼' : '—'}
           </span>
@@ -277,8 +290,8 @@ const CyberScannerBanner: React.FC<{
               : 'bg-rose-100/90 border-rose-400 text-rose-700'
           }`}
         >
-          <span className="text-[9px] font-mono font-extrabold leading-none uppercase">
-            5m RSI
+          <span className="text-[8px] font-mono font-extrabold leading-none uppercase truncate max-w-full">
+            {highLowTickReadout.windowLabel ? `${highLowTickReadout.windowLabel} RSI` : '5m RSI'}
           </span>
           <span className="font-mono tabular-nums text-base sm:text-lg font-extrabold leading-tight select-none">
             {highLowTickReadout.rsi5m !== undefined ? highLowTickReadout.rsi5m.toFixed(0) : '50'}
@@ -305,8 +318,13 @@ const ScanningRing: React.FC<{ secondsLeft: number; totalSeconds?: number }> = (
   const total = Math.max(1, totalSeconds);
   const radius = 23;
   const circumference = 2 * Math.PI * radius;
-  const progress = Math.max(0.08, Math.min(1, secondsLeft / total));
+  const progress = Math.max(0.04, Math.min(1, secondsLeft / total));
   const strokeDashoffset = circumference * (1 - progress);
+
+  const formattedTime =
+    secondsLeft >= 60
+      ? `${Math.floor(secondsLeft / 60)}:${(secondsLeft % 60).toString().padStart(2, '0')}`
+      : `${secondsLeft}s`;
 
   return (
     <div className="relative w-14 h-14 flex items-center justify-center shrink-0">
@@ -333,8 +351,12 @@ const ScanningRing: React.FC<{ secondsLeft: number; totalSeconds?: number }> = (
           className="transition-all duration-500"
         />
       </svg>
-      <span className="absolute font-mono tabular-nums text-base font-extrabold text-cyan-500">
-        {secondsLeft}
+      <span
+        className={`absolute font-mono tabular-nums font-extrabold text-cyan-500 ${
+          secondsLeft >= 60 ? 'text-[11px] sm:text-xs leading-none' : 'text-base leading-none'
+        }`}
+      >
+        {formattedTime}
       </span>
     </div>
   );
@@ -366,7 +388,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
     }
   }, [activeSignal?.marketId]);
 
-  const stake = normalBotConfig.initialStake;
+  const stake = normalBotConfig.initialStake || 0.35;
   const rawConfiguredTicks =
     !normalBotConfig.durationUnit || normalBotConfig.durationUnit === 't'
       ? Math.round(normalBotConfig.duration || 1)
@@ -376,11 +398,23 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   const maxTicksForTab =
     category === 'only_up_down' || category === 'high_low_tick' ? 5 : 10;
   const effectiveDefaultTicks =
-    category === 'high_low_tick' ? 5 : rawConfiguredTicks;
+    category === 'only_up_down' || category === 'high_low_tick'
+      ? (rawConfiguredTicks >= minTicksForTab && rawConfiguredTicks <= maxTicksForTab ? rawConfiguredTicks : 5)
+      : (rawConfiguredTicks >= minTicksForTab && rawConfiguredTicks <= maxTicksForTab ? rawConfiguredTicks : 1);
   const ticks = Math.min(maxTicksForTab, Math.max(minTicksForTab, effectiveDefaultTicks));
-  const martingale = normalBotConfig.martingale;
+  const martingale = normalBotConfig.martingale || 1.5;
   const takeProfit = normalBotConfig.takeProfit;
   const stopLoss = normalBotConfig.stopLoss;
+
+  const handleSelectCategory = (newCat: SignalCategory) => {
+    setCategory(newCat);
+    // User requirement: default ticks be 1 in even/odd, over/under and 5 for only up/only down and high/low tick
+    if (newCat === 'only_up_down' || newCat === 'high_low_tick') {
+      onUpdateNormalBotConfig({ duration: 5, durationUnit: 't' });
+    } else {
+      onUpdateNormalBotConfig({ duration: 1, durationUnit: 't' });
+    }
+  };
 
   const scannerRef = useRef<MultiMarketSignalScanner | null>(null);
   const [, setTickRevision] = useState<number>(0);
@@ -478,9 +512,9 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
       : category === 'over_under'
       ? 'Over 4, 5, 6, 7 (53/45/35/30%) & Under 5, 4, 3, 2 (53/45/35/30%) only. Entry waits for ≥3 consecutive opposite digits + 1 winning confirmation digit, then trades continuously.'
       : category === 'only_up_down'
-      ? 'First identifies the overall market trend (Uptrend / Downtrend) to decide direction, then checks the 2-minute candlestick for strong aligned momentum to activate Run (entry: ≥2 Fall → 1 Rise for Only Up; ≥2 Rise → 1 Fall for Only Down).'
+      ? 'All windows operate using 5m timeframe with asynchronous staggered scanning (25s offsets). Strict guards: No trade in first 1 min (0s–60s) for signal confirmation, and no trade in last 20s to protect against candle trend shifts.'
       : category === 'high_low_tick'
-      ? '5-minute Candlestick + RSI(14) on Advanced TradingView: candle must have wicks on both sides to activate Run. High Tick: RSI < 50 + initial entry of 3 consecutive rising ticks (▲▲▲), then trades continuously. Low Tick: RSI > 50 + initial entry of 3 consecutive falling ticks (▼▼▼), then trades continuously. No trade when ≤10s remain in the 5m candle.'
+      ? 'All windows operate using 5m timeframe with asynchronous staggered scanning (25s offsets). Strict guards: No trade in first 1 min (0s–60s) for signal confirmation, and no trade in last 20s to protect against candle trend shifts.'
       : 'Finds the digit with more occurrence in the last 10 ticks and trades Digit Match continuously on the Normal Bot.';
 
   const chartAnalysis5m =
@@ -563,7 +597,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
               type="number"
               min={0.35}
               max={9999}
-              step={0.5}
+              step={0.05}
               value={stake}
               onChange={(e) => handleStakeChange(e.target.value)}
               className={compactInputClass}
@@ -647,6 +681,36 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         </div>
       </div>
 
+      {/* 2B. 5M TIMEFRAME ANALYSIS & STAGGERED SCANNING SUMMARY STRIP */}
+      {(category === 'only_up_down' || category === 'high_low_tick') && (
+        <div
+          className={`w-full rounded-2xl border px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2.5 text-xs ${
+            isLight
+              ? 'bg-cyan-50/80 border-cyan-200 text-cyan-950'
+              : 'bg-[#0b1626] border-cyan-900/40 text-cyan-200'
+          }`}
+        >
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold flex items-center gap-1.5 text-cyan-400">
+              <Clock className="w-4 h-4 text-cyan-400" />
+              <span>5m Windows · Staggered Scanning · 1m & 20s Guards:</span>
+            </span>
+            <span className="text-[11px] font-mono text-slate-300">
+              All windows 5m (300s) · Safe trade window: 1:00 to 4:40 · No trade in first 1 min or last 20s
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => scannerRef.current?.resetMarketWindows(category)}
+            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 transition-colors cursor-pointer flex items-center gap-1"
+            title="Reset all volatility index windows to standard 5m timeframe with staggered offsets"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Reset Defaults (5m)</span>
+          </button>
+        </div>
+      )}
+
       {/* ACTIVE SIGNAL RUNNING / WAITING FOR ENTRY BANNER (Scoped strictly to current signal tab) */}
       {isActiveSignalForCurrentTab && activeSignal && (
         <div
@@ -700,7 +764,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => setCategory('even_odd')}
+            onClick={() => handleSelectCategory('even_odd')}
             className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
               category === 'even_odd'
                 ? 'bg-[#2563eb] text-sky-50 border-[#2563eb] shadow-xs'
@@ -714,7 +778,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setCategory('over_under')}
+            onClick={() => handleSelectCategory('over_under')}
             className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
               category === 'over_under'
                 ? 'bg-[#2563eb] text-sky-50 border-[#2563eb] shadow-xs'
@@ -728,7 +792,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setCategory('digit_match')}
+            onClick={() => handleSelectCategory('digit_match')}
             className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
               category === 'digit_match'
                 ? 'bg-[#2563eb] text-sky-50 border-[#2563eb] shadow-xs'
@@ -742,7 +806,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setCategory('only_up_down')}
+            onClick={() => handleSelectCategory('only_up_down')}
             className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
               category === 'only_up_down'
                 ? 'bg-[#2563eb] text-sky-50 border-[#2563eb] shadow-xs'
@@ -756,7 +820,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setCategory('high_low_tick')}
+            onClick={() => handleSelectCategory('high_low_tick')}
             className={`px-4 py-2 rounded-full text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 border ${
               category === 'high_low_tick'
                 ? 'bg-[#2563eb] text-sky-50 border-[#2563eb] shadow-xs'
@@ -886,6 +950,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                 candle2mDirection={
                   category === 'only_up_down' ? snap.candle2mDirection : undefined
                 }
+                candleWindowLabel={snap.scanWindowLabel}
                 highLowTickReadout={
                   category === 'high_low_tick' &&
                   (displayContractType === 'HIGH_TICK' || displayContractType === 'LOW_TICK')
@@ -893,6 +958,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         contractType: displayContractType,
                         targetTick: Math.min(5, Math.max(1, Number(displayPrediction) || 5)),
                         rsi5m: snap.rsi5m,
+                        windowLabel: snap.scanWindowLabel,
                       }
                     : undefined
                 }
@@ -906,6 +972,41 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                     </h3>
                     <div className="flex items-center gap-1.5 flex-wrap text-xs font-mono mt-0.5">
                       <span className="text-slate-400">{snap.market.id}</span>
+                      {(category === 'only_up_down' || category === 'high_low_tick') && (
+                        <>
+                          <span className="text-slate-600">·</span>
+                          <div
+                            title={`Tailored scanning window for ${snap.market.name} (click to adjust)`}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-[11px] font-semibold"
+                          >
+                            <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
+                            <span>{snap.scanWindowLabel} window</span>
+                            <select
+                              value={snap.scanTotalSeconds}
+                              onChange={(e) => {
+                                const sec = parseInt(e.target.value, 10);
+                                if (!Number.isNaN(sec)) {
+                                  scannerRef.current?.setMarketWindow(category, snap.market.id, sec);
+                                }
+                              }}
+                              className="bg-slate-900 text-cyan-200 text-[10px] font-bold rounded px-1 py-0 border border-cyan-500/30 focus:outline-none cursor-pointer hover:border-cyan-400"
+                              title={`Change scanning window for ${snap.market.name}`}
+                            >
+                              {category === 'only_up_down' || category === 'high_low_tick'
+                                ? [300, 240, 180, 120, 60].map((s) => (
+                                    <option key={s} value={s}>
+                                      {s === 300 ? '5m (Standard)' : formatWindowDuration(s)}
+                                    </option>
+                                  ))
+                                : [300, 240, 180, 120, 60].map((s) => (
+                                    <option key={s} value={s}>
+                                      {formatWindowDuration(s)}
+                                    </option>
+                                  ))}
+                            </select>
+                          </div>
+                        </>
+                      )}
                       {(category === 'only_up_down' || category === 'high_low_tick') &&
                         snap.marketTrend && (
                           <>
@@ -936,7 +1037,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       <button
                         type="button"
                         onClick={() => setChartMarket(snap.market)}
-                        title={`Inspect ${snap.market.name} on 5m Advanced TradingView`}
+                        title={`Inspect ${snap.market.name} on Advanced TradingView`}
                         className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 cursor-pointer transition-colors ${
                           chartMarket.id === snap.market.id
                             ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
@@ -944,7 +1045,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         }`}
                       >
                         <TrendingUp className="w-3 h-3" />
-                        <span>5m Chart</span>
+                        <span>Chart</span>
                       </button>
                     )}
 
@@ -966,28 +1067,26 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                     <div className="flex items-center gap-3.5 py-1">
                       <ScanningRing
                         secondsLeft={snap.scanSecondsLeft}
-                        totalSeconds={
-                          category === 'only_up_down'
-                            ? 120
-                            : category === 'high_low_tick'
-                            ? 300
-                            : 17
-                        }
+                        totalSeconds={snap.scanTotalSeconds}
                       />
                       <div className="flex flex-col gap-1 min-w-0">
                         <span className="text-xs sm:text-sm font-extrabold tracking-wide text-white uppercase">
-                          {category === 'only_up_down'
-                            ? 'SCANNING TREND & 2M CANDLE'
+                          {snap.isOpeningGuard
+                            ? 'NO TRADE · OPENING 1M CONFIRMATION GUARD'
+                            : snap.isClosingGuard
+                            ? 'NO TRADE · CLOSING 20S TREND GUARD'
+                            : category === 'only_up_down'
+                            ? `SCANNING ${snap.scanWindowLabel.toUpperCase()} TREND & MOMENTUM`
                             : category === 'high_low_tick'
-                            ? (snap.candle5mSecondsLeft ?? 300) <= 10
-                              ? 'NO TRADE · ≤10S REMAINING'
-                              : 'ANALYSING 5M CANDLE & RSI'
+                            ? `ANALYSING ${snap.scanWindowLabel.toUpperCase()} CANDLE & RSI`
                             : 'SCANNING'}
                         </span>
                         <span
                           className={`w-5 h-1 rounded-full ${
-                            category === 'high_low_tick' && (snap.candle5mSecondsLeft ?? 300) <= 10
+                            snap.isClosingGuard
                               ? 'bg-rose-500'
+                              : snap.isOpeningGuard
+                              ? 'bg-amber-400'
                               : 'bg-cyan-500'
                           }`}
                         />
@@ -1006,14 +1105,16 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                           : 'bg-slate-800/35 text-slate-500 border-slate-700/60'
                       }`}
                     >
-                      {category === 'only_up_down'
+                      {snap.isOpeningGuard
+                        ? `No trade · First 1m wait (${Math.max(1, 60 - ((snap.scanTotalSeconds - snap.scanSecondsLeft) % snap.scanTotalSeconds))}s left · Awaiting confirmation)`
+                        : snap.isClosingGuard
+                        ? `No trade · Closing 20s (${snap.scanSecondsLeft}s left ≤ 20s · Protecting trend shift)`
+                        : category === 'only_up_down'
                         ? snap.marketTrend === 'ranging'
-                          ? 'Run (awaiting clear market trend...)'
-                          : 'Run (trend confirmed · awaiting 2m momentum...)'
+                          ? `Run (awaiting ${snap.scanWindowLabel} market trend...)`
+                          : `Run (trend confirmed · awaiting ${snap.scanWindowLabel} momentum...)`
                         : category === 'high_low_tick'
-                        ? (snap.candle5mSecondsLeft ?? 300) <= 10
-                          ? `No trade (${snap.candle5mSecondsLeft}s left ≤ 10s in 5m candle)`
-                          : 'Run (awaiting 5m wicks on both sides...)'
+                        ? `Run (awaiting ${snap.scanWindowLabel} wicks on both sides...)`
                         : 'Run (scanning for market...)'}
                     </button>
                   </div>
@@ -1037,9 +1138,9 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       <div className="flex flex-col min-w-0">
                         <span className="text-xs sm:text-sm font-extrabold text-white font-mono tabular-nums">
                           {category === 'only_up_down'
-                            ? `Trend + Strong 2m · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`
+                            ? `Trend + Strong ${snap.scanWindowLabel} · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`
                             : category === 'high_low_tick'
-                            ? `5m Wicks + RSI · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`
+                            ? `${snap.scanWindowLabel} Wicks + RSI · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`
                             : `Market found · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`}
                         </span>
                         <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums truncate">

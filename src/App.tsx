@@ -40,6 +40,7 @@ import { TradesHistoryView } from './components/TradesHistoryView';
 import { BottomNavigation, ActiveTab } from './components/BottomNavigation';
 import { DerivApiModal } from './components/DerivApiModal';
 import { AuthModal } from './components/AuthModal';
+import { LoginPage } from './components/LoginPage';
 import { FloatingBotController } from './components/FloatingBotController';
 import { Zap, Cpu, ShieldCheck } from 'lucide-react';
 
@@ -75,6 +76,15 @@ export default function App() {
 
   // Tabs & Modals
   const [activeTab, setActiveTab] = useState<ActiveTab>('digits');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'login'>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('view') === 'login' || urlParams.get('login') === '1') {
+        return 'login';
+      }
+    } catch {}
+    return 'dashboard';
+  });
   const [isApiModalOpen, setIsApiModalOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
@@ -83,13 +93,22 @@ export default function App() {
   const [derivAuthError, setDerivAuthError] = useState<string | null>(null);
 
   // User Account & Virtual Demo Balance
-  const [userAccount, setUserAccount] = useState<UserAccount>({
-    isLoggedIn: false,
-    username: 'TraderEdge',
-    email: 'trader@tickedge.io',
-    balance: 10000.0,
-    currency: 'USD',
-    isDemo: true,
+  const [userAccount, setUserAccount] = useState<UserAccount>(() => {
+    try {
+      const saved = localStorage.getItem('tickedge_auth_session');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.isLoggedIn) return parsed;
+      }
+    } catch {}
+    return {
+      isLoggedIn: false,
+      username: '',
+      email: '',
+      balance: 10000.0,
+      currency: 'USD',
+      isDemo: true,
+    };
   });
 
   // ==========================================
@@ -97,11 +116,37 @@ export default function App() {
   // ==========================================
   const [digitsBotConfig, setDigitsBotConfig] = useState<BotStrategyConfig>(() => {
     try {
+      const v2Migrated = localStorage.getItem('tickedge_defaults_stake035_mg15_ticks_v2');
       const saved = localStorage.getItem('tickedge_digits_bot_strategy');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!v2Migrated) {
+          const next = {
+            ...parsed,
+            stake: parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35,
+            initialStake: parsed.initialStake === 1.0 ? 0.35 : parsed.initialStake || 0.35,
+            martingale: parsed.martingale === 2.0 ? 1.5 : parsed.martingale || 1.5,
+            duration: 1,
+            durationUnit: 't' as const,
+          };
+          localStorage.setItem('tickedge_digits_bot_strategy', JSON.stringify(next));
+          return next;
+        }
+        return parsed;
+      }
       // Legacy fallback
       const legacy = localStorage.getItem('tickedge_saved_strategy');
-      if (legacy) return JSON.parse(legacy);
+      if (legacy) {
+        const parsedLegacy = JSON.parse(legacy);
+        return {
+          ...parsedLegacy,
+          stake: 0.35,
+          initialStake: 0.35,
+          martingale: 1.5,
+          duration: 1,
+          durationUnit: 't' as const,
+        };
+      }
     } catch {}
     return {
       id: 'digits-bot',
@@ -115,9 +160,9 @@ export default function App() {
       predictionDigit: 2,
       duration: 1,
       durationUnit: 't',
-      stake: 1.0,
-      initialStake: 1.0,
-      martingale: 2.0,
+      stake: 0.35,
+      initialStake: 0.35,
+      martingale: 1.5,
       maxSteps: 4,
       takeProfit: 0.1,
       stopLoss: 20.0,
@@ -143,8 +188,24 @@ export default function App() {
   // ==========================================
   const [chartsBotConfig, setChartsBotConfig] = useState<BotStrategyConfig>(() => {
     try {
+      const v2Migrated = localStorage.getItem('tickedge_defaults_stake035_mg15_ticks_v2');
       const saved = localStorage.getItem('tickedge_charts_bot_strategy');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (!v2Migrated) {
+          const next = {
+            ...parsed,
+            stake: parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35,
+            initialStake: parsed.initialStake === 1.0 ? 0.35 : parsed.initialStake || 0.35,
+            martingale: parsed.martingale === 2.0 ? 1.5 : parsed.martingale || 1.5,
+            duration: 1,
+            durationUnit: 't' as const,
+          };
+          localStorage.setItem('tickedge_charts_bot_strategy', JSON.stringify(next));
+          return next;
+        }
+        return parsed;
+      }
     } catch {}
     return {
       id: 'charts-bot',
@@ -158,9 +219,9 @@ export default function App() {
       predictionDigit: 5,
       duration: 1,
       durationUnit: 't',
-      stake: 1.0,
-      initialStake: 1.0,
-      martingale: 2.0,
+      stake: 0.35,
+      initialStake: 0.35,
+      martingale: 1.5,
       maxSteps: 4,
       takeProfit: 0.1,
       stopLoss: 25.0,
@@ -189,7 +250,7 @@ export default function App() {
   const [floatingBotSelection, setFloatingBotSelection] = useState<'normal' | 'strategy'>('normal');
   const [normalBotConfig, setNormalBotConfig] = useState<NormalBotConfig>(() => {
     try {
-      const migratedTp = localStorage.getItem('tickedge_tp_default_0_1_v1');
+      const v2Migrated = localStorage.getItem('tickedge_defaults_stake035_mg15_ticks_v2');
       const saved = localStorage.getItem('tickedge_normal_bot_config');
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -204,14 +265,25 @@ export default function App() {
             signalEntryTrigger: 'immediate',
           };
         }
-        if (!migratedTp) {
-          next = { ...next, takeProfit: 0.1 };
-          localStorage.setItem('tickedge_tp_default_0_1_v1', '1');
+        if (!v2Migrated) {
+          const isHighLow = next.contractType === 'HIGH_TICK' || next.contractType === 'LOW_TICK';
+          const isOnlyUpDown = next.contractType === 'ONLY_UP' || next.contractType === 'ONLY_DOWN';
+          const isDigitOrEvenOdd = ['OVER', 'UNDER', 'EVEN', 'ODD', 'DIFFERS', 'MATCHES'].includes(next.contractType);
+          next = {
+            ...next,
+            stake: next.stake === 1.0 ? 0.35 : next.stake || 0.35,
+            initialStake: next.initialStake === 1.0 ? 0.35 : next.initialStake || 0.35,
+            martingale: next.martingale === 2.0 ? 1.5 : next.martingale || 1.5,
+            duration: isHighLow || isOnlyUpDown ? 5 : isDigitOrEvenOdd ? 1 : (next.duration || 1),
+            durationUnit: 't' as const,
+            takeProfit: next.takeProfit ?? 0.1,
+          };
+          localStorage.setItem('tickedge_defaults_stake035_mg15_ticks_v2', '1');
           localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(next));
         }
         return next;
       }
-      localStorage.setItem('tickedge_tp_default_0_1_v1', '1');
+      localStorage.setItem('tickedge_defaults_stake035_mg15_ticks_v2', '1');
     } catch {}
     return {
       id: 'normal-bot',
@@ -219,13 +291,13 @@ export default function App() {
       marketId: DEFAULT_MARKET.id,
       contractType: 'OVER',
       prediction: 2,
-      stake: 1.0,
-      initialStake: 1.0,
+      stake: 0.35,
+      initialStake: 0.35,
       duration: 1,
       durationUnit: 't',
       takeProfit: 0.1,
       stopLoss: 20.0,
-      martingale: 2.0,
+      martingale: 1.5,
       martingaleLevel: 4,
       active: false,
     };
@@ -483,13 +555,19 @@ export default function App() {
       try {
         localStorage.setItem('tickedge_deriv_token', token1);
       } catch {}
-      setUserAccount((prev) => ({
-        ...prev,
+      const authUser: UserAccount = {
         isLoggedIn: true,
         username: acct1 || 'DerivTrader',
+        email: `${acct1 || 'deriv'}@deriv.com`,
+        balance: 10000.0,
         currency: cur1 || 'USD',
         isDemo: Boolean(acct1 && acct1.startsWith('VR')),
-      }));
+      };
+      setUserAccount(authUser);
+      setCurrentView('dashboard');
+      try {
+        localStorage.setItem('tickedge_auth_session', JSON.stringify(authUser));
+      } catch {}
       engine.connectDeriv(savedAppId, token1);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -861,7 +939,7 @@ export default function App() {
         ? Math.min(5, Math.max(1, Math.round(req.prediction || 5)))
         : req.prediction;
     const resolvedTicks = isOnlyUpDown
-      ? Math.min(5, Math.max(2, Math.round(req.ticks || 2)))
+      ? Math.min(5, Math.max(2, Math.round(req.ticks || 5)))
       : isHighLowTick
       ? 5
       : Math.min(10, Math.max(1, Math.round(req.ticks || 1)));
@@ -940,10 +1018,71 @@ export default function App() {
     }
   };
 
+  const handleLogout = () => {
+    const loggedOutAccount: UserAccount = {
+      isLoggedIn: false,
+      username: '',
+      email: '',
+      balance: 10000.0,
+      currency: 'USD',
+      isDemo: true,
+    };
+    setUserAccount(loggedOutAccount);
+    setCurrentView('login');
+    try {
+      localStorage.removeItem('tickedge_auth_session');
+      localStorage.removeItem('tickedge_deriv_token');
+    } catch {}
+    if (engineRef.current) {
+      const currentAppId = engineRef.current.getAppId() || '1089';
+      engineRef.current.connectDeriv(currentAppId, '');
+    }
+  };
+
+  const handleLoginSuccess = (accountData: {
+    username: string;
+    email: string;
+    isDemo: boolean;
+    balance: number;
+    token?: string;
+  }) => {
+    const updatedAccount: UserAccount = {
+      isLoggedIn: true,
+      username: accountData.username,
+      email: accountData.email,
+      isDemo: accountData.isDemo,
+      balance: accountData.balance,
+      currency: 'USD',
+    };
+    setUserAccount(updatedAccount);
+    try {
+      localStorage.setItem('tickedge_auth_session', JSON.stringify(updatedAccount));
+    } catch {}
+    handleResetUserBalance(accountData.balance);
+    if (accountData.token) {
+      handleAuthorizeDerivToken(accountData.token);
+    }
+    setCurrentView('dashboard');
+  };
+
   // Compute stats on-the-fly from the ticks buffer based on past ticks (excluding the current tick)
   const pastTicks = useMemo(() => (ticks.length > 1 ? ticks.slice(0, -1) : ticks), [ticks]);
   const digitStats = useMemo(() => calculateDigitStats(pastTicks), [pastTicks]);
   const ratioStats = useMemo(() => calculateRatioStats(pastTicks), [pastTicks]);
+
+  // CRITICAL REQUIREMENT: Tool Login page is the first page a trader sees. One MUST sign in to access the terminal.
+  if (!userAccount.isLoggedIn || currentView === 'login') {
+    return (
+      <LoginPage
+        onLoginSuccess={handleLoginSuccess}
+        userAccount={userAccount}
+        connectionStatus={connectionStatus}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
+        onAuthorizeDerivToken={handleAuthorizeDerivToken}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#080d16] text-slate-100 flex flex-col pb-20 selection:bg-[#00e599]/30">
@@ -956,6 +1095,8 @@ export default function App() {
         onChangeSpeed={handleChangeSpeed}
         onOpenApiModal={() => setIsApiModalOpen(true)}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenLoginPage={() => setCurrentView('login')}
+        onLogout={handleLogout}
         userBalance={userAccount.balance}
         isDemo={userAccount.isDemo}
         onResetBuffer={handleResetBuffer}
@@ -980,23 +1121,25 @@ export default function App() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h4 className="font-bold text-white text-sm">Official Deriv OAuth Authorization</h4>
+                  <h4 className="font-bold text-white text-sm">Tool Login & Deriv Authorization</h4>
                   <span className="text-[10px] bg-[#ff444f]/20 text-[#ff444f] border border-[#ff444f]/40 font-bold px-1.5 py-0.5 rounded uppercase">
-                    OAuth 2.0
+                    OAuth 2.0 & Token
                   </span>
                 </div>
                 <p className="text-xs text-slate-300">
-                  Connect your Deriv account for live tick feeds, real & demo automated bot trading, and balance sync.
+                  Connect your Deriv account or trader profile to enable live tick streaming, bot execution, and real/demo balance synchronization.
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setIsAuthModalOpen(true)}
-              className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-white bg-gradient-to-r from-[#ff444f] via-[#e53945] to-[#cc2936] hover:from-[#ff555f] hover:to-[#ea3943] shadow-[0_0_20px_rgba(255,68,79,0.45)] hover:shadow-[0_0_30px_rgba(255,68,79,0.7)] transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 border border-[#ff444f]/50"
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Login with Deriv</span>
-            </button>
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => setCurrentView('login')}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-white bg-gradient-to-r from-[#ff444f] via-[#e53945] to-[#cc2936] hover:from-[#ff555f] hover:to-[#ea3943] shadow-[0_0_20px_rgba(255,68,79,0.45)] hover:shadow-[0_0_30px_rgba(255,68,79,0.7)] transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 border border-[#ff444f]/50"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>Open Tool Login Page</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -1325,6 +1468,11 @@ export default function App() {
         onUpdateAccount={(acc) => setUserAccount((prev) => ({ ...prev, ...acc }))}
         onResetBalance={handleResetUserBalance}
         onAuthorizeDerivToken={handleAuthorizeDerivToken}
+        onOpenLoginPage={() => {
+          setIsAuthModalOpen(false);
+          setCurrentView('login');
+        }}
+        onLogout={handleLogout}
       />
     </div>
   );

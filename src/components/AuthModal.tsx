@@ -25,6 +25,8 @@ interface AuthModalProps {
   onUpdateAccount: (account: Partial<UserAccount>) => void;
   onResetBalance: (amount: number) => void;
   onAuthorizeDerivToken?: (token: string) => void;
+  onOpenLoginPage?: () => void;
+  onLogout?: () => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -34,6 +36,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onUpdateAccount,
   onResetBalance,
   onAuthorizeDerivToken,
+  onOpenLoginPage,
+  onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<'deriv_auth' | 'affiliate' | 'profile'>('deriv_auth');
   const [username, setUsername] = useState(userAccount.username);
@@ -165,12 +169,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setApiToken('');
     try {
       localStorage.removeItem('tickedge_deriv_token');
+      localStorage.removeItem('tickedge_auth_session');
     } catch {}
     if (onAuthorizeDerivToken) {
       onAuthorizeDerivToken('');
     }
-    setSuccessMsg('Logged out of Deriv account. Virtual simulation active.');
-    setTimeout(() => setSuccessMsg(''), 2500);
+    if (onLogout) {
+      onLogout();
+    }
+    onClose();
   };
 
   return (
@@ -294,10 +301,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </button>
                     <button
                       onClick={handleLogout}
-                      className="w-full py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full py-2 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 hover:text-white border border-rose-500/40 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                     >
                       <LogOut className="w-3.5 h-3.5" />
-                      <span>Disconnect Deriv Account</span>
+                      <span>Log Out of Tool</span>
                     </button>
                   </div>
                 </div>
@@ -557,10 +564,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-800 bg-[#090d16] flex justify-end">
+        <div className="px-5 py-3 border-t border-slate-800 bg-[#090d16] flex justify-between items-center">
+          {onOpenLoginPage && (
+            <button
+              onClick={() => {
+                onClose();
+                onOpenLoginPage();
+              }}
+              className="text-xs text-[#00e599] hover:underline flex items-center gap-1 cursor-pointer font-semibold"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              <span>Open Tool Login Page</span>
+            </button>
+          )}
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition-colors cursor-pointer"
+            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs transition-colors cursor-pointer ml-auto"
           >
             Close
           </button>

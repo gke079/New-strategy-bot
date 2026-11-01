@@ -1,4 +1,4 @@
-import { Volume2, VolumeX, Gauge, Wifi, Zap, RefreshCw, User, Sun, Moon, ShieldCheck } from 'lucide-react';
+import { Volume2, VolumeX, Gauge, Wifi, Zap, RefreshCw, User, Sun, Moon, ShieldCheck, LogOut } from 'lucide-react';
 import { ConnectionStatus } from '../services/tickEngine';
 
 interface HeaderProps {
@@ -16,6 +16,8 @@ interface HeaderProps {
   onToggleTheme: () => void;
   isLoggedIn?: boolean;
   username?: string;
+  onOpenLoginPage?: () => void;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -33,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
   isLoggedIn,
   username,
+  onOpenLoginPage,
+  onLogout,
 }) => {
   const handleLogin = () => {
     const affiliateId = localStorage.getItem('tickedge_deriv_affiliate_id') || '';
@@ -241,35 +245,49 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </button>
 
-          {/* Prominent Login with Deriv button or Authorized badge */}
+          {/* Connected User Badge & Prominent Log Out Button */}
           {isLoggedIn ? (
-            <button
-              onClick={onOpenAuthModal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-400 font-mono text-xs font-bold hover:bg-emerald-500/25 transition-all cursor-pointer shadow-sm"
-              title="Deriv Account Connected - Click to view account"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>{username || 'Connected'}</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onOpenAuthModal}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/15 text-emerald-400 font-mono text-xs font-bold hover:bg-emerald-500/25 transition-all cursor-pointer shadow-sm"
+                title="Deriv Account Connected - Click to view account"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>{username || 'Connected'}</span>
+              </button>
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  className="px-3 py-1.5 rounded-lg font-bold text-xs transition-all shadow-sm flex items-center gap-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-white border border-rose-500/40 hover:border-rose-500 active:scale-95 cursor-pointer"
+                  title="Log out and return to Tool Login page"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Log Out</span>
+                </button>
+              )}
+            </div>
           ) : (
             <button
-              onClick={onOpenAuthModal}
+              onClick={onOpenLoginPage || onOpenAuthModal}
               className="px-3.5 py-1.5 rounded-lg font-bold text-xs sm:text-sm transition-all duration-200 shadow-[0_0_15px_rgba(255,68,79,0.4)] hover:shadow-[0_0_25px_rgba(255,68,79,0.65)] flex items-center gap-1.5 bg-gradient-to-r from-[#ff444f] via-[#e53945] to-[#cc2936] hover:from-[#ff555f] hover:to-[#ea3943] text-white active:scale-95 cursor-pointer border border-[#ff444f]/50"
-              title="Log in directly with Deriv Official OAuth"
+              title="Open Tool Login Portal"
             >
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Login with Deriv</span>
+              <span>Tool Login</span>
             </button>
           )}
 
-          {/* Sign up button -> Pure White */}
-          <button
-            onClick={handleSignUp}
-            className="px-3.5 py-1.5 rounded-lg font-bold text-xs sm:text-sm transition-all shadow-sm flex items-center gap-1 bg-white hover:bg-neutral-100 text-black border border-neutral-300 active:scale-95"
-            title="Sign up with Deriv Affiliate tracking link"
-          >
-            <span>Sign up</span>
-          </button>
+          {/* Sign up button only shown when NOT logged in */}
+          {!isLoggedIn && (
+            <button
+              onClick={handleSignUp}
+              className="px-3.5 py-1.5 rounded-lg font-bold text-xs sm:text-sm transition-all shadow-sm flex items-center gap-1 bg-white hover:bg-neutral-100 text-black border border-neutral-300 active:scale-95"
+              title="Sign up with Deriv Affiliate tracking link"
+            >
+              <span>Sign up</span>
+            </button>
+          )}
 
           {/* API button */}
           <button

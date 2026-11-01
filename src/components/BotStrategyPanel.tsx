@@ -459,7 +459,19 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
           <div className="relative">
             <select
               value={config.tradeType}
-              onChange={(e) => onUpdateConfig({ tradeType: e.target.value as TradeContractType })}
+              onChange={(e) => {
+                const newType = e.target.value as TradeContractType;
+                let nextDuration = config.duration;
+                let nextDurationUnit = config.durationUnit;
+                if (newType === 'ONLY_UP' || newType === 'ONLY_DOWN' || newType === 'HIGH_TICK' || newType === 'LOW_TICK') {
+                  nextDuration = 5;
+                  nextDurationUnit = 't';
+                } else if (['OVER', 'UNDER', 'EVEN', 'ODD', 'DIFFERS', 'MATCHES'].includes(newType)) {
+                  nextDuration = 1;
+                  nextDurationUnit = 't';
+                }
+                onUpdateConfig({ tradeType: newType, duration: nextDuration, durationUnit: nextDurationUnit });
+              }}
               className="w-full appearance-none px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 font-medium cursor-pointer"
             >
               {tradeCategories.map((group) => (
@@ -545,10 +557,10 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
           <input
             type="number"
             min="0.35"
-            step="0.5"
+            step="0.05"
             value={config.stake}
             onChange={(e) => {
-              const val = parseFloat(e.target.value) || 0.5;
+              const val = parseFloat(e.target.value) || 0.35;
               onUpdateConfig({ stake: val, initialStake: val });
             }}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
@@ -565,7 +577,7 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
             min="1"
             step="0.1"
             value={config.martingale}
-            onChange={(e) => onUpdateConfig({ martingale: parseFloat(e.target.value) || 1 })}
+            onChange={(e) => onUpdateConfig({ martingale: parseFloat(e.target.value) || 1.5 })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>

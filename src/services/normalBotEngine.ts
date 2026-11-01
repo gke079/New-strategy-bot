@@ -651,17 +651,29 @@ export class NormalBotExecutor {
       }
     }
 
-    const isHighLowTickContract =
-      this.config.contractType === 'HIGH_TICK' || this.config.contractType === 'LOW_TICK';
+    const is5mGuardedContract =
+      this.config.contractType === 'HIGH_TICK' ||
+      this.config.contractType === 'LOW_TICK' ||
+      this.config.contractType === 'ONLY_UP' ||
+      this.config.contractType === 'ONLY_DOWN';
 
-    // Strict 5-minute candle close guard for High Tick / Low Tick:
-    // No trade is placed when <= 10 seconds remain in the 5-minute candle.
-    if (isHighLowTickContract) {
+    // Strict 5-minute candle guards:
+    // 1. Opening 1 minute (first 60s): NO TRADE to wait for clear confirmation of the signal.
+    // 2. Closing 20 seconds (<= 20s remaining): NO TRADE to protect against potential change of trend for the incoming candle.
+    if (is5mGuardedContract) {
       const candle5mSecsLeft = this.get5mCandleSecondsRemaining(tick.epoch);
-      if (candle5mSecsLeft <= 10) {
+      const secInto5mCandle = 300 - candle5mSecsLeft;
+      if (secInto5mCandle < 60) {
         this.notifyEntryWait(
           true,
-          `No trade · 5m candle closing (${candle5mSecsLeft}s left ≤ 10s)`
+          `Opening 1m wait (${60 - secInto5mCandle}s left) · Awaiting clear confirmation`
+        );
+        return;
+      }
+      if (candle5mSecsLeft <= 20) {
+        this.notifyEntryWait(
+          true,
+          `Closing 20s guard (${candle5mSecsLeft}s left) · Protecting against trend change`
         );
         return;
       }
@@ -675,7 +687,7 @@ export class NormalBotExecutor {
       }
       this.hasInitialEntryConfirmed = true;
       this.notifyEntryWait(false, '');
-    } else if (isHighLowTickContract) {
+    } else if (is5mGuardedContract) {
       this.notifyEntryWait(false, '');
     }
     this.openNewContract(tick, allTicks);
@@ -697,12 +709,26 @@ export class NormalBotExecutor {
       return;
     }
 
-    if (this.config.contractType === 'HIGH_TICK' || this.config.contractType === 'LOW_TICK') {
+    const is5mGuarded =
+      this.config.contractType === 'HIGH_TICK' ||
+      this.config.contractType === 'LOW_TICK' ||
+      this.config.contractType === 'ONLY_UP' ||
+      this.config.contractType === 'ONLY_DOWN';
+
+    if (is5mGuarded) {
       const candle5mSecsLeft = this.get5mCandleSecondsRemaining(entryTick.epoch);
-      if (candle5mSecsLeft <= 10) {
+      const secInto5mCandle = 300 - candle5mSecsLeft;
+      if (secInto5mCandle < 60) {
         this.notifyEntryWait(
           true,
-          `No trade · 5m candle closing (${candle5mSecsLeft}s left ≤ 10s)`
+          `Opening 1m wait (${60 - secInto5mCandle}s left) · Awaiting clear confirmation`
+        );
+        return;
+      }
+      if (candle5mSecsLeft <= 20) {
+        this.notifyEntryWait(
+          true,
+          `Closing 20s guard (${candle5mSecsLeft}s left) · Protecting against trend change`
         );
         return;
       }

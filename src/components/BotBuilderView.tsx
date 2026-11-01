@@ -603,6 +603,8 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                   onChange={(e) => {
                     const ct = e.target.value as TradeContractType;
                     const highLow = ct === 'HIGH_TICK' || ct === 'LOW_TICK';
+                    const isOnlyUpDown = ct === 'ONLY_UP' || ct === 'ONLY_DOWN';
+                    const isDigitOrEvenOdd = ['OVER', 'UNDER', 'DIFFERS', 'MATCHES', 'EVEN', 'ODD'].includes(ct);
                     updateStructuredField({
                       contractType: ct,
                       contractCategory: highLow
@@ -610,10 +612,10 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                         : ['RISE', 'FALL', 'ONLY_UP', 'ONLY_DOWN', 'RESET_CALL', 'RESET_PUT'].includes(ct)
                         ? 'callput'
                         : 'digits',
+                      duration: highLow || isOnlyUpDown ? 5 : isDigitOrEvenOdd ? 1 : config.duration,
+                      durationUnit: 't',
                       ...(highLow
                         ? {
-                            duration: 5,
-                            durationUnit: 't',
                             prediction: Math.max(1, Math.min(5, Math.round(config.prediction || 3))),
                           }
                         : {}),
@@ -1000,7 +1002,7 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                     value={config.martingaleMultiplier}
                     onChange={(e) =>
                       updateStructuredField({
-                        martingaleMultiplier: Math.max(1.05, parseFloat(e.target.value) || 2.0),
+                        martingaleMultiplier: Math.max(1.05, parseFloat(e.target.value) || 1.5),
                       })
                     }
                     className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-mono tabular-nums font-bold text-white"

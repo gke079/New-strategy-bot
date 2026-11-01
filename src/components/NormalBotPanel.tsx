@@ -114,11 +114,16 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
       if (typeof config.prediction !== 'number' || isNaN(Number(config.prediction))) {
         defaultPrediction = newContract === 'OVER' ? 2 : newContract === 'UNDER' ? 7 : 5;
       }
+      nextDuration = 1;
+      nextDurationUnit = 't';
     } else if (newContract === 'EVEN' || newContract === 'ODD') {
       defaultPrediction = newContract;
+      nextDuration = 1;
+      nextDurationUnit = 't';
     } else if (newContract === 'ONLY_UP' || newContract === 'ONLY_DOWN') {
       defaultPrediction = newContract;
-      nextDuration = Math.max(2, config.duration || 2);
+      nextDuration = 5;
+      nextDurationUnit = 't';
     } else if (newContract === 'HIGH_TICK' || newContract === 'LOW_TICK') {
       const numPred = Number(config.prediction);
       defaultPrediction = numPred >= 1 && numPred <= 5 ? Math.round(numPred) : 5;
@@ -589,10 +594,10 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
           <input
             type="number"
             min="0.35"
-            step="0.5"
+            step="0.05"
             value={config.stake}
             onChange={(e) => {
-              const val = parseFloat(e.target.value) || 0.5;
+              const val = parseFloat(e.target.value) || 0.35;
               onUpdateConfig({ stake: val, initialStake: val });
             }}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
@@ -607,7 +612,7 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
             min="1"
             step="0.1"
             value={config.martingale}
-            onChange={(e) => onUpdateConfig({ martingale: parseFloat(e.target.value) || 1 })}
+            onChange={(e) => onUpdateConfig({ martingale: parseFloat(e.target.value) || 1.5 })}
             className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
           />
         </div>

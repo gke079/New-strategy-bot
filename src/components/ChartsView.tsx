@@ -201,12 +201,12 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
         </div>
       </div>
 
-      {/* Live 5m Candlestick Wicks + RSI(14) + 10s Guard HUD when provided */}
+      {/* Live Candlestick Wicks + RSI(14) + Dynamic Guard HUD when provided */}
       {analysis5m && (
         <div className="bg-[#090d16] border border-slate-800 rounded-xl px-3.5 py-2.5 mb-2 flex flex-wrap items-center justify-between gap-2.5 text-xs font-mono tabular-nums">
           <div className="flex items-center gap-3 flex-wrap">
             <span className="font-sans font-bold text-slate-200">
-              {analysis5m.market.name.replace(' Index', '')} (5m):
+              {analysis5m.market.name.replace(' Index', '')} ({analysis5m.windowLabel || '5m'}):
             </span>
             <span
               className={
@@ -247,8 +247,8 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
               }
             >
               {analysis5m.noTradeWindow
-                ? `NO TRADE · ${analysis5m.secondsLeft}s left (≤10s)`
-                : `5m Candle Left: ${formatCountdown(analysis5m.secondsLeft)}`}
+                ? `NO TRADE · ${analysis5m.secondsLeft}s left (≤${analysis5m.closeGuardSec ?? 10}s)`
+                : `${analysis5m.windowLabel || '5m'} Candle Left: ${formatCountdown(analysis5m.secondsLeft)}`}
             </span>
           </div>
         </div>

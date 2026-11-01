@@ -42,6 +42,12 @@ export interface Market5mAnalysisSummary {
   lowerWick: number;
   hasBothWicks: boolean;
   secondsLeft: number;
+  totalSeconds: number;
+  windowLabel: string;
+  openingGuardSec: number;
+  closeGuardSec: number;
+  isOpeningGuard: boolean;
+  isClosingGuard: boolean;
   noTradeWindow: boolean;
   candleDirection: 'bullish' | 'bearish' | 'neutral';
 }
@@ -59,6 +65,8 @@ export interface MarketSignalSnapshot {
   rsi5m?: number;
   candle5mHasBothWicks?: boolean;
   candle5mSecondsLeft?: number;
+  isOpeningGuard?: boolean;
+  isClosingGuard?: boolean;
   marketTrend?: 'uptrend' | 'downtrend' | 'ranging';
   marketTrendSummary?: string;
   recentWindowWinners?: number[];
@@ -66,6 +74,8 @@ export interface MarketSignalSnapshot {
   windowTickCount: number;
   isScanning: boolean;
   scanSecondsLeft: number;
+  scanTotalSeconds: number;
+  scanWindowLabel: string;
   scanStatusNote: string;
   // Computed stats
   evenPct: number;
@@ -112,6 +122,53 @@ const SIGNAL_MARKET_IDS = [
 export const SIGNAL_MARKETS: Market[] = SIGNAL_MARKET_IDS.map((id) =>
   SYNTHETIC_MARKETS.find((m) => m.id === id)
 ).filter((m): m is Market => Boolean(m));
+
+/**
+/**
+ * Standard 5-Minute Analysis Timeframe (300 seconds).
+ * Technical analysis (Wilder's RSI-14, 5m OHLC candles, both-sides wicks, market trend EMAs,
+ * swing structure, and momentum) operates on the 5-minute timeframe.
+ * Scanning across markets is staggered asynchronously (25-second phase offsets across indices)
+ * so markets scan at distinct times rather than simultaneously.
+ */
+export const DEFAULT_ANALYSIS_TIMEFRAME_SEC = 300;
+
+export const ONLY_UP_DOWN_DEFAULT_WINDOWS: Record<string, number> = {
+  '1HZ100V': 300,
+  '1HZ75V': 300,
+  '1HZ50V': 300,
+  '1HZ25V': 300,
+  '1HZ10V': 300,
+  'R_100': 300,
+  'R_75': 300,
+  'R_50': 300,
+  'R_25': 300,
+  'R_10': 300,
+  'stp_index_100': 300,
+  'JD50': 300,
+};
+
+export const HIGH_LOW_TICK_DEFAULT_WINDOWS: Record<string, number> = {
+  '1HZ100V': 300,
+  '1HZ75V': 300,
+  '1HZ50V': 300,
+  '1HZ25V': 300,
+  '1HZ10V': 300,
+  'R_100': 300,
+  'R_75': 300,
+  'R_50': 300,
+  'R_25': 300,
+  'R_10': 300,
+  'stp_index_100': 300,
+  'JD50': 300,
+};
+
+export function formatWindowDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
 
 /**
  * Allowed Over barriers ONLY: 4, 5, 6, 7
@@ -180,10 +237,13 @@ interface InternalMarketState {
   prices: number[];
   candles2m: Candle2m[];
   candles5m: Candle5m[];
+  candlesOnlyUp: Candle5m[];
+  candlesHighLow: Candle5m[];
   lastPrice: number;
   lastQuote: string;
   isLiveWs: boolean;
   lastWsEpoch: number;
+  scanPhaseOffsetSec: number;
   parityPhaseOffsetSec: number;
   overUnderPhaseOffsetSec: number;
   matchPhaseOffsetSec: number;
@@ -224,6 +284,9 @@ export class MultiMarketSignalScanner {
   private isConnected = false;
   private listeners = new Set<() => void>();
 
+  private onlyUpDownWindows: Record<string, number> = { ...ONLY_UP_DOWN_DEFAULT_WINDOWS };
+  private highLowWindows: Record<string, number> = { ...HIGH_LOW_TICK_DEFAULT_WINDOWS };
+
   private endpoints = [
     'wss://ws.derivws.com/websockets/v3',
     'wss://blue.derivws.com/websockets/v3',
@@ -233,23 +296,47 @@ export class MultiMarketSignalScanner {
   private startedAtSec = Math.floor(Date.now() / 1000);
 
   constructor() {
+    try {
+      const savedOU = localStorage.getItem('tickedge_only_up_down_windows');
+      if (savedOU) {
+        this.onlyUpDownWindows = { ...this.onlyUpDownWindows, ...JSON.parse(savedOU) };
+      }
+    } catch {}
+    try {
+      const savedHL = localStorage.getItem('tickedge_high_low_windows');
+      if (savedHL) {
+        this.highLowWindows = { ...this.highLowWindows, ...JSON.parse(savedHL) };
+      }
+    } catch {}
+
     const nowSec = Math.floor(Date.now() / 1000);
     const currentBucketEpoch = Math.floor(nowSec / 120) * 120;
     const current5mBucketEpoch = Math.floor(nowSec / 300) * 300;
 
     SIGNAL_MARKETS.forEach((market, idx) => {
-      // Seed 20 prior 2-minute candlesticks + active 2-minute candlestick and trailing 101 ticks
+      // Stagger market scanning desynchronized across 300s (5m timeframe): spaced 25s apart
+      const scanPhaseOffsetSec = (idx * 25) % 300;
+      const windowOnlyUp = this.getMarketWindow('only_up_down', market.id);
+      const windowHighLow = this.getMarketWindow('high_low_tick', market.id);
+      const currentBucketOnlyUp = Math.floor((nowSec + scanPhaseOffsetSec) / windowOnlyUp) * windowOnlyUp - scanPhaseOffsetSec;
+      const currentBucketHighLow = Math.floor((nowSec + scanPhaseOffsetSec) / windowHighLow) * windowHighLow - scanPhaseOffsetSec;
+
+      // Seed candlesticks tailored to market-specific Only Up / Only Down window (5m analysis)
+      const seededCandlesOnlyUp: Candle5m[] = [];
+      // Seed candlesticks tailored to market-specific High Low window (5m analysis)
+      const seededCandlesHighLow: Candle5m[] = [];
       const seededCandles: Candle2m[] = [];
       const seededCandles5m: Candle5m[] = [];
       const allSeededQuotes: number[] = [];
       const allSeededDigits: number[] = [];
       let price5m = market.basePrice;
 
-      // Seed 30 5-minute candlesticks (for Wilder's RSI-14 + live 5m upper/lower wicks)
+      // Seed 30 market-calibrated High Low candlesticks (for Wilder's RSI-14 + wicks)
       for (let c5 = 29; c5 >= 0; c5--) {
+        const bucketHL = currentBucketHighLow - c5 * windowHighLow;
         const bucket5m = current5mBucketEpoch - c5 * 300;
         const steps5m =
-          c5 === 0 ? Math.max(18, Math.min(90, nowSec - current5mBucketEpoch)) : 60;
+          c5 === 0 ? Math.max(18, Math.min(90, nowSec - currentBucketHighLow)) : 60;
         const waveBias = Math.sin(idx * 1.15 + c5 * 0.32) * 0.08;
         const open5m = Number(price5m.toFixed(market.decimals));
         let high5m = open5m;
@@ -266,6 +353,13 @@ export class MultiMarketSignalScanner {
           close5m = numericQuote;
         }
 
+        seededCandlesHighLow.push({
+          epoch: bucketHL,
+          open: open5m,
+          high: high5m,
+          low: low5m,
+          close: close5m,
+        });
         seededCandles5m.push({
           epoch: bucket5m,
           open: open5m,
@@ -275,11 +369,12 @@ export class MultiMarketSignalScanner {
         });
       }
 
-      let price = seededCandles5m[seededCandles5m.length - 1]?.open ?? market.basePrice;
+      let price = seededCandlesHighLow[seededCandlesHighLow.length - 1]?.open ?? market.basePrice;
 
       for (let cIdx = 20; cIdx >= 0; cIdx--) {
+        const bucketEpochOU = currentBucketOnlyUp - cIdx * windowOnlyUp;
         const bucketEpoch = currentBucketEpoch - cIdx * 120;
-        const stepsInCandle = cIdx === 0 ? Math.max(12, Math.min(60, nowSec - currentBucketEpoch)) : 45;
+        const stepsInCandle = cIdx === 0 ? Math.max(12, Math.min(60, nowSec - currentBucketOnlyUp)) : 45;
         const driftBias = Math.sin(idx * 1.35 + cIdx * 0.16) * 0.11;
         const candleOpen = Number(price.toFixed(market.decimals));
         let candleHigh = candleOpen;
@@ -299,6 +394,13 @@ export class MultiMarketSignalScanner {
           allSeededDigits.push(d);
         }
 
+        seededCandlesOnlyUp.push({
+          epoch: bucketEpochOU,
+          open: candleOpen,
+          high: candleHigh,
+          low: candleLow,
+          close: candleClose,
+        });
         seededCandles.push({
           epoch: bucketEpoch,
           open: candleOpen,
@@ -312,7 +414,13 @@ export class MultiMarketSignalScanner {
       const seededPrices = allSeededQuotes.slice(-101);
       const finalQuote = seededPrices[seededPrices.length - 1] ?? market.basePrice;
 
-      // Sync active 5m candle close/high/low with finalQuote
+      // Sync active high-low candle close/high/low with finalQuote
+      const lastHL = seededCandlesHighLow[seededCandlesHighLow.length - 1];
+      if (lastHL) {
+        lastHL.high = Math.max(lastHL.high, finalQuote);
+        lastHL.low = Math.min(lastHL.low, finalQuote);
+        lastHL.close = finalQuote;
+      }
       const last5m = seededCandles5m[seededCandles5m.length - 1];
       if (last5m) {
         last5m.high = Math.max(last5m.high, finalQuote);
@@ -331,10 +439,13 @@ export class MultiMarketSignalScanner {
         prices: seededPrices,
         candles2m: seededCandles,
         candles5m: seededCandles5m,
+        candlesOnlyUp: seededCandlesOnlyUp,
+        candlesHighLow: seededCandlesHighLow,
         lastPrice: finalQuote,
         lastQuote: finalQuote.toFixed(market.decimals),
         isLiveWs: false,
         lastWsEpoch: 0,
+        scanPhaseOffsetSec,
         parityPhaseOffsetSec,
         overUnderPhaseOffsetSec,
         matchPhaseOffsetSec,
@@ -344,6 +455,53 @@ export class MultiMarketSignalScanner {
 
     this.connectWebSocket();
     this.startHeartbeat();
+  }
+
+  public getMarketWindow(category: SignalCategory, marketId: string): number {
+    if (category === 'only_up_down') {
+      return this.onlyUpDownWindows[marketId] ?? ONLY_UP_DOWN_DEFAULT_WINDOWS[marketId] ?? 300;
+    }
+    if (category === 'high_low_tick') {
+      return this.highLowWindows[marketId] ?? HIGH_LOW_TICK_DEFAULT_WINDOWS[marketId] ?? 300;
+    }
+    return SCAN_WINDOW_SEC;
+  }
+
+  public setMarketWindow(category: SignalCategory, marketId: string, seconds: number) {
+    const clamped = Math.max(15, Math.min(900, Math.round(seconds)));
+    if (category === 'only_up_down') {
+      this.onlyUpDownWindows[marketId] = clamped;
+      try {
+        localStorage.setItem(
+          'tickedge_only_up_down_windows',
+          JSON.stringify(this.onlyUpDownWindows)
+        );
+      } catch {}
+    } else if (category === 'high_low_tick') {
+      this.highLowWindows[marketId] = clamped;
+      try {
+        localStorage.setItem(
+          'tickedge_high_low_windows',
+          JSON.stringify(this.highLowWindows)
+        );
+      } catch {}
+    }
+    this.notify();
+  }
+
+  public resetMarketWindows(category: SignalCategory) {
+    if (category === 'only_up_down') {
+      this.onlyUpDownWindows = { ...ONLY_UP_DOWN_DEFAULT_WINDOWS };
+      try {
+        localStorage.removeItem('tickedge_only_up_down_windows');
+      } catch {}
+    } else if (category === 'high_low_tick') {
+      this.highLowWindows = { ...HIGH_LOW_TICK_DEFAULT_WINDOWS };
+      try {
+        localStorage.removeItem('tickedge_high_low_windows');
+      } catch {}
+    }
+    this.notify();
   }
 
   public subscribe(listener: () => void): () => void {
@@ -366,7 +524,7 @@ export class MultiMarketSignalScanner {
   }
 
   private upsertCandleFromTick(st: InternalMarketState, quoteNum: number, epochSec: number) {
-    // 1. Update 2-minute candle (120s)
+    // 1. Update standard 2-minute candle (120s)
     const bucketEpoch2m = Math.floor(epochSec / 120) * 120;
     const candles2m = st.candles2m;
     const last2m = candles2m[candles2m.length - 1];
@@ -388,8 +546,9 @@ export class MultiMarketSignalScanner {
       ];
     }
 
-    // 2. Update 5-minute candle (300s)
-    const bucketEpoch5m = Math.floor(epochSec / 300) * 300;
+    // 2. Update 5-minute candle (300s) anchored to market-specific staggered scanning offset
+    const shiftedEpoch5m = epochSec + st.scanPhaseOffsetSec;
+    const bucketEpoch5m = Math.floor(shiftedEpoch5m / 300) * 300 - st.scanPhaseOffsetSec;
     const candles5m = st.candles5m;
     const last5m = candles5m[candles5m.length - 1];
     if (last5m && last5m.epoch === bucketEpoch5m) {
@@ -402,6 +561,54 @@ export class MultiMarketSignalScanner {
         ...candles5m.slice(-34),
         {
           epoch: bucketEpoch5m,
+          open: openPrice,
+          high: Math.max(openPrice, quoteNum),
+          low: Math.min(openPrice, quoteNum),
+          close: quoteNum,
+        },
+      ];
+    }
+
+    // 3. Update market-specific Only Up / Only Down window candle (5m default, staggered)
+    const windowOnlyUp = this.getMarketWindow('only_up_down', st.market.id);
+    const shiftedEpochOU = epochSec + st.scanPhaseOffsetSec;
+    const bucketEpochOU = Math.floor(shiftedEpochOU / windowOnlyUp) * windowOnlyUp - st.scanPhaseOffsetSec;
+    const candlesOU = st.candlesOnlyUp;
+    const lastOU = candlesOU[candlesOU.length - 1];
+    if (lastOU && lastOU.epoch === bucketEpochOU) {
+      lastOU.high = Math.max(lastOU.high, quoteNum);
+      lastOU.low = Math.min(lastOU.low, quoteNum);
+      lastOU.close = quoteNum;
+    } else if (!lastOU || bucketEpochOU > lastOU.epoch) {
+      const openPrice = lastOU ? lastOU.close : quoteNum;
+      st.candlesOnlyUp = [
+        ...candlesOU.slice(-34),
+        {
+          epoch: bucketEpochOU,
+          open: openPrice,
+          high: Math.max(openPrice, quoteNum),
+          low: Math.min(openPrice, quoteNum),
+          close: quoteNum,
+        },
+      ];
+    }
+
+    // 4. Update market-specific High Low window candle (5m default, staggered)
+    const windowHighLow = this.getMarketWindow('high_low_tick', st.market.id);
+    const shiftedEpochHL = epochSec + st.scanPhaseOffsetSec;
+    const bucketEpochHL = Math.floor(shiftedEpochHL / windowHighLow) * windowHighLow - st.scanPhaseOffsetSec;
+    const candlesHL = st.candlesHighLow;
+    const lastHL = candlesHL[candlesHL.length - 1];
+    if (lastHL && lastHL.epoch === bucketEpochHL) {
+      lastHL.high = Math.max(lastHL.high, quoteNum);
+      lastHL.low = Math.min(lastHL.low, quoteNum);
+      lastHL.close = quoteNum;
+    } else if (!lastHL || bucketEpochHL > lastHL.epoch) {
+      const openPrice = lastHL ? lastHL.close : quoteNum;
+      st.candlesHighLow = [
+        ...candlesHL.slice(-34),
+        {
+          epoch: bucketEpochHL,
           open: openPrice,
           high: Math.max(openPrice, quoteNum),
           low: Math.min(openPrice, quoteNum),
@@ -1094,6 +1301,8 @@ export class MultiMarketSignalScanner {
       windowTickCount: parityDigits.length,
       isScanning,
       scanSecondsLeft,
+      scanTotalSeconds: SCAN_WINDOW_SEC,
+      scanWindowLabel: `${SCAN_WINDOW_SEC}s`,
       scanStatusNote,
       evenPct,
       oddPct,
@@ -1284,6 +1493,8 @@ export class MultiMarketSignalScanner {
       windowTickCount: ouWindowDigits.length,
       isScanning,
       scanSecondsLeft,
+      scanTotalSeconds: SCAN_WINDOW_SEC,
+      scanWindowLabel: `${SCAN_WINDOW_SEC}s`,
       scanStatusNote,
       evenPct: 0,
       oddPct: 0,
@@ -1399,6 +1610,8 @@ export class MultiMarketSignalScanner {
       windowTickCount: last10Digits.length,
       isScanning,
       scanSecondsLeft,
+      scanTotalSeconds: SCAN_WINDOW_SEC,
+      scanWindowLabel: `${SCAN_WINDOW_SEC}s`,
       scanStatusNote,
       evenPct: 0,
       oddPct: 0,
@@ -1527,8 +1740,8 @@ export class MultiMarketSignalScanner {
    * - Strong Bearish Momentum (vice versa): Bearish 2m candle (close < open) with >=52% body ratio,
    *   closing near its lower range (<=40%), and >=0.55x avgBody displacement.
    */
-  private score2mCandle(
-    candle: Candle2m,
+  private scoreCandle(
+    candle: Candle5m | Candle2m,
     avgBody: number,
     pipUnit: number
   ): {
@@ -1571,6 +1784,15 @@ export class MultiMarketSignalScanner {
     };
   }
 
+  // Alias for backward compatibility
+  private score2mCandle(
+    candle: Candle5m | Candle2m,
+    avgBody: number,
+    pipUnit: number
+  ) {
+    return this.scoreCandle(candle, avgBody, pipUnit);
+  }
+
   private computeEMA(values: number[], period: number): number[] {
     if (values.length === 0) return [];
     const k = 2 / (period + 1);
@@ -1585,10 +1807,10 @@ export class MultiMarketSignalScanner {
    * Stage 1 — Market Trend Analysis (Evaluated FIRST to determine trade direction):
    * Examines multi-candle market structure (EMA 5 vs EMA 13 alignment & slope, swing High/Low
    * progression HH/HL vs LH/LL, ATR-normalized net displacement, and 100-tick micro-trend slope)
-   * to establish whether the market is in a clear Uptrend, Downtrend, or Ranging/Sideways state.
+   * on 5-minute candlesticks to establish whether the market is in a clear Uptrend, Downtrend, or Ranging/Sideways state.
    */
   private evaluateMarketTrend(
-    candles: Candle2m[],
+    candles: Array<Candle5m | Candle2m>,
     prices: number[],
     pipUnit: number
   ): {
@@ -1754,13 +1976,14 @@ export class MultiMarketSignalScanner {
   /**
    * Strictly isolated Only Up / Only Down signal snapshot builder.
    * Two-stage directional & momentum pipeline before activating the Run button:
-   * 1. Market Trend First: Analyses multi-candle market structure (EMA 5/13, HH/HL vs LH/LL, ATR slope)
+   * 1. 5-Minute Market Trend First: Analyses 5m multi-candle market structure (EMA 5/13, HH/HL vs LH/LL, ATR slope)
    *    to make an informed decision on market direction (Uptrend -> ONLY UP, Downtrend -> ONLY DOWN).
    *    Ranging/sideways markets stay in scanning mode.
-   * 2. 2-Minute Candle Momentum Second: Once trend direction is confirmed, checks the 2-minute candlestick
-   *    for strong aligned momentum (strong bullish 2m candle in Uptrend, or strong bearish 2m candle in Downtrend)
+   * 2. 5-Minute Candle Momentum Second: Once trend direction is confirmed, checks the 5-minute candlestick
+   *    for strong aligned momentum (strong bullish 5m candle in Uptrend, or strong bearish 5m candle in Downtrend)
    *    before activating the Run button.
-   * 3. Entry Trigger:
+   * 3. Scanning Timing: Desynchronized across markets with 25s phase offsets so markets scan at distinct times.
+   * 4. Entry Trigger:
    *    - ONLY UP:   >= 2 Fall ticks -> 1 Rise tick
    *    - ONLY DOWN: >= 2 Rise ticks -> 1 Fall tick
    */
@@ -1772,16 +1995,30 @@ export class MultiMarketSignalScanner {
     const dirs = this.extractStepDirections(st.prices).slice(-100);
     const pipUnit = Math.pow(10, -st.market.decimals);
 
-    const candles = st.candles2m;
-    const currentBucketEpoch = Math.floor(nowSec / 120) * 120;
-    const activeCandle: Candle2m = candles[candles.length - 1] ?? {
-      epoch: currentBucketEpoch,
+    const windowSec = this.getMarketWindow('only_up_down', st.market.id);
+    const windowLabel = formatWindowDuration(windowSec);
+    // Analysis uses 5-minute timeframe (candles5m)
+    const candles =
+      st.candles5m && st.candles5m.length > 0
+        ? st.candles5m
+        : st.candlesOnlyUp && st.candlesOnlyUp.length > 0
+        ? st.candlesOnlyUp
+        : st.candles2m;
+
+    // Staggered market scanning calculation so markets scan at different times
+    const shiftedSec = nowSec + st.scanPhaseOffsetSec;
+    const phaseSec = shiftedSec % windowSec;
+    const candleSecondsLeft = Math.max(1, windowSec - phaseSec);
+    const secIntoCandle = phaseSec;
+
+    const activeCandle: Candle5m | Candle2m = candles[candles.length - 1] ?? {
+      epoch: nowSec - secIntoCandle,
       open: st.lastPrice,
       high: st.lastPrice,
       low: st.lastPrice,
       close: st.lastPrice,
     };
-    const prevCandle: Candle2m | undefined =
+    const prevCandle: (Candle5m | Candle2m) | undefined =
       candles.length >= 2 ? candles[candles.length - 2] : undefined;
 
     const priorClosed = candles.slice(-12, -1);
@@ -1791,13 +2028,20 @@ export class MultiMarketSignalScanner {
           priorClosed.length
         : Math.max(pipUnit, st.market.volatility * st.lastPrice * 3);
 
-    // STAGE 1: Evaluate overall Market Trend FIRST to decide direction
+    // STAGE 1: Evaluate 5-minute Market Trend FIRST to decide direction
     const trendEval = this.evaluateMarketTrend(candles, st.prices, pipUnit);
 
-    // STAGE 2: Evaluate 2-minute candlestick momentum SECOND, strictly aligned with Stage 1 trend
-    const curEval = this.score2mCandle(activeCandle, avgBody, pipUnit);
-    const secIntoCandle = Math.max(0, Math.min(119, nowSec - activeCandle.epoch));
-    const candleSecondsLeft = Math.max(1, 120 - secIntoCandle);
+    // STAGE 2: Evaluate 5-minute candlestick momentum SECOND, strictly aligned with Stage 1 trend
+    const curEval = this.scoreCandle(activeCandle, avgBody, pipUnit);
+
+    // Strict Candle Timing Guards on 5m analysis:
+    // 1. First 1 min (0s - 60s) of the 5m candle: NO TRADE to wait for clear confirmation of the signal.
+    // 2. Last 20 seconds of the 5m candle: NO TRADE to protect against potential change of trend for the incoming candle.
+    const OPENING_GUARD_SEC = 60; // First 1 minute no trade
+    const CLOSING_GUARD_SEC = 20; // Last 20 seconds no trade
+    const isOpeningGuard = secIntoCandle < OPENING_GUARD_SEC;
+    const isClosingGuard = candleSecondsLeft <= CLOSING_GUARD_SEC;
+    const inCandleGuard = isOpeningGuard || isClosingGuard;
 
     // Brief 3-second initial scan when scanner first mounts before unlocking discovered signals
     const inInitialWarmup = nowSec - this.startedAtSec < 3 && !st.isLiveWs;
@@ -1807,9 +2051,9 @@ export class MultiMarketSignalScanner {
     let displayImpulse = curEval.impulseRatio;
     let displayMomentumPct = curEval.momentumPct;
 
-    if (!inInitialWarmup) {
+    if (!inInitialWarmup && !inCandleGuard) {
       if (trendEval.direction === 'uptrend') {
-        // Direction decided by Market Trend: ONLY UP only. Now verify 2m bullish candle momentum:
+        // Direction decided by Market Trend: ONLY UP only. Now verify bullish candle momentum:
         if (curEval.isStrongBullish) {
           discoveredSide = 'ONLY_UP';
         } else if (
@@ -1820,13 +2064,13 @@ export class MultiMarketSignalScanner {
           curEval.bodyPct >= 34 &&
           curEval.impulseRatio >= 0.35
         ) {
-          // Keep Run button active during a 2-tick entry pullback inside the same bullish 2m candle
+          // Keep Run button active during a 2-tick entry pullback inside the same bullish candle
           discoveredSide = 'ONLY_UP';
           displayMomentumPct = Math.max(
             curEval.momentumPct,
             st.lockedOnlyUpDown.peakMomentumPct - 4
           );
-        } else if (secIntoCandle < 18 && prevCandle) {
+        } else if (secIntoCandle < Math.min(22, Math.round(windowSec * 0.18)) && prevCandle) {
           const prevEval = this.score2mCandle(prevCandle, avgBody, pipUnit);
           if (prevEval.isStrongBullish && curEval.direction !== 'bearish') {
             discoveredSide = 'ONLY_UP';
@@ -1836,7 +2080,7 @@ export class MultiMarketSignalScanner {
           }
         }
       } else if (trendEval.direction === 'downtrend') {
-        // Direction decided by Market Trend: ONLY DOWN only. Now verify 2m bearish candle momentum:
+        // Direction decided by Market Trend: ONLY DOWN only. Now verify bearish candle momentum:
         if (curEval.isStrongBearish) {
           discoveredSide = 'ONLY_DOWN';
         } else if (
@@ -1847,13 +2091,13 @@ export class MultiMarketSignalScanner {
           curEval.bodyPct >= 34 &&
           curEval.impulseRatio >= 0.35
         ) {
-          // Keep Run button active during a 2-tick entry bounce inside the same bearish 2m candle
+          // Keep Run button active during a 2-tick entry bounce inside the same bearish candle
           discoveredSide = 'ONLY_DOWN';
           displayMomentumPct = Math.max(
             curEval.momentumPct,
             st.lockedOnlyUpDown.peakMomentumPct - 4
           );
-        } else if (secIntoCandle < 18 && prevCandle) {
+        } else if (secIntoCandle < Math.min(22, Math.round(windowSec * 0.18)) && prevCandle) {
           const prevEval = this.score2mCandle(prevCandle, avgBody, pipUnit);
           if (prevEval.isStrongBearish && curEval.direction !== 'bullish') {
             discoveredSide = 'ONLY_DOWN';
@@ -1868,7 +2112,7 @@ export class MultiMarketSignalScanner {
       }
     }
 
-    if (!discoveredSide) {
+    if (!discoveredSide || inCandleGuard) {
       st.lockedOnlyUpDown = undefined;
     }
 
@@ -1900,9 +2144,18 @@ export class MultiMarketSignalScanner {
     let patternSummary = '';
     let hasStrongEdge = false;
     let isScanning = true;
-    let scanStatusNote = 'Checking market trend & 2m candle momentum...';
+    let scanStatusNote = `Checking market trend & ${windowLabel} momentum...`;
 
-    if (discoveredSide) {
+    if (inCandleGuard) {
+      isScanning = true;
+      hasStrongEdge = false;
+      entryConfirmedNow = false;
+      if (isOpeningGuard) {
+        scanStatusNote = `Opening 1m guard (${OPENING_GUARD_SEC - secIntoCandle}s left) · Waiting for clear signal confirmation`;
+      } else {
+        scanStatusNote = `Closing 20s guard (${candleSecondsLeft}s left) · Protecting against trend change before new 5m candle`;
+      }
+    } else if (discoveredSide) {
       const prevPeak =
         st.lockedOnlyUpDown && st.lockedOnlyUpDown.candleEpoch === activeCandle.epoch
           ? st.lockedOnlyUpDown.peakMomentumPct
@@ -1930,8 +2183,8 @@ export class MultiMarketSignalScanner {
       const impulseLabel = `${displayImpulse.toFixed(1)}x`;
       distributionSubtext =
         discoveredSide === 'ONLY_UP'
-          ? `Uptrend ▲ (${trendEval.structureTag}) · 2m Bullish ${displayBodyPct}% body (${impulseLabel})`
-          : `Downtrend ▼ (${trendEval.structureTag}) · 2m Bearish ${displayBodyPct}% body (${impulseLabel})`;
+          ? `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} Bullish ${displayBodyPct}% body (${impulseLabel})`
+          : `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} Bearish ${displayBodyPct}% body (${impulseLabel})`;
       patternSummary = `${confirmCheck.statusText} · Continuous`;
     } else {
       isScanning = true;
@@ -1939,23 +2192,23 @@ export class MultiMarketSignalScanner {
         scanStatusNote = 'Trend ranging / sideways · Awaiting clear market trend';
       } else if (trendEval.direction === 'uptrend') {
         if (curEval.direction === 'bearish') {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · 2m pullback ▼, awaiting bullish momentum`;
+          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} pullback ▼, awaiting bullish momentum`;
         } else if (curEval.direction === 'neutral' || curEval.impulseRatio < 0.25) {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · 2m flat, awaiting strong bullish candle`;
+          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} flat, awaiting strong bullish candle`;
         } else if (curEval.bodyPct < 52) {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · 2m Bullish (${curEval.bodyPct}% body), awaiting momentum`;
+          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} Bullish (${curEval.bodyPct}% body), awaiting momentum`;
         } else {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · 2m Bullish (${curEval.impulseRatio.toFixed(1)}x), building momentum`;
+          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} Bullish (${curEval.impulseRatio.toFixed(1)}x), building momentum`;
         }
       } else {
         if (curEval.direction === 'bullish') {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · 2m bounce ▲, awaiting bearish momentum`;
+          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} bounce ▲, awaiting bearish momentum`;
         } else if (curEval.direction === 'neutral' || curEval.impulseRatio < 0.25) {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · 2m flat, awaiting strong bearish candle`;
+          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} flat, awaiting strong bearish candle`;
         } else if (curEval.bodyPct < 52) {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · 2m Bearish (${curEval.bodyPct}% body), awaiting momentum`;
+          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} Bearish (${curEval.bodyPct}% body), awaiting momentum`;
         } else {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · 2m Bearish (${curEval.impulseRatio.toFixed(1)}x), building momentum`;
+          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} Bearish (${curEval.impulseRatio.toFixed(1)}x), building momentum`;
         }
       }
     }
@@ -1967,7 +2220,7 @@ export class MultiMarketSignalScanner {
         ? 'bearish'
         : curEval.direction;
 
-    const clampedTicks = Math.min(5, Math.max(2, Math.round(ticks || 2)));
+    const clampedTicks = Math.min(5, Math.max(2, Math.round(ticks || 5)));
     const onlyUpDownPayoutMap: Record<number, number> = {
       2: 3.85,
       3: 7.8,
@@ -1988,7 +2241,12 @@ export class MultiMarketSignalScanner {
       marketTrendSummary: trendEval.summaryText,
       windowTickCount: candles.length,
       isScanning,
+      isOpeningGuard,
+      isClosingGuard,
+      candle5mSecondsLeft: candleSecondsLeft,
       scanSecondsLeft: candleSecondsLeft,
+      scanTotalSeconds: windowSec,
+      scanWindowLabel: windowLabel,
       scanStatusNote,
       evenPct: 0,
       oddPct: 0,
@@ -2083,20 +2341,35 @@ export class MultiMarketSignalScanner {
     const st = this.states.get(marketId);
     if (!st) return null;
     const nowSec = Math.floor(Date.now() / 1000);
-    const bucketEpoch5m = Math.floor(nowSec / 300) * 300;
-    const secondsLeft = Math.max(1, 300 - (nowSec - bucketEpoch5m));
+    const windowSec = this.getMarketWindow('high_low_tick', marketId);
+    const windowLabel = formatWindowDuration(windowSec);
+    const shiftedSec = nowSec + st.scanPhaseOffsetSec;
+    const phaseSec = shiftedSec % windowSec;
+    const secondsLeft = Math.max(1, windowSec - phaseSec);
+    const secIntoCandle = phaseSec;
+    const openingGuardSec = 60; // First 1 minute no trade
+    const closeGuardSec = 20; // Last 20 seconds no trade
+    const isOpeningGuard = secIntoCandle < openingGuardSec;
+    const isClosingGuard = secondsLeft <= closeGuardSec;
+    const noTradeWindow = isOpeningGuard || isClosingGuard;
     const pipUnit = Math.pow(10, -st.market.decimals);
 
+    const candles =
+      st.candles5m && st.candles5m.length > 0
+        ? st.candles5m
+        : st.candlesHighLow && st.candlesHighLow.length > 0
+        ? st.candlesHighLow
+        : st.candles2m;
     const activeCandle: Candle5m =
-      st.candles5m[st.candles5m.length - 1] ?? {
-        epoch: bucketEpoch5m,
+      candles[candles.length - 1] ?? {
+        epoch: nowSec - phaseSec,
         open: st.lastPrice,
         high: st.lastPrice,
         low: st.lastPrice,
         close: st.lastPrice,
       };
 
-    const closes = st.candles5m.map((c) => c.close);
+    const closes = candles.map((c) => c.close);
     const rsi5m = this.computeWilderRsi14(closes, 14);
     const bodyTop = Math.max(activeCandle.open, activeCandle.close);
     const bodyBottom = Math.min(activeCandle.open, activeCandle.close);
@@ -2121,18 +2394,26 @@ export class MultiMarketSignalScanner {
       lowerWick,
       hasBothWicks,
       secondsLeft,
-      noTradeWindow: secondsLeft <= 10,
+      totalSeconds: windowSec,
+      windowLabel,
+      openingGuardSec,
+      closeGuardSec,
+      isOpeningGuard,
+      isClosingGuard,
+      noTradeWindow,
       candleDirection,
     };
   }
 
   /**
    * Strictly isolated High Tick / Low Tick (TICKHIGH / TICKLOW · 5 Ticks) signal snapshot builder.
-   * Strategy (5-Minute Candlestick + RSI(14) + Both-Sides Wicks + 10s Candle Close Guard):
+   * Strategy (5-Minute Candlestick + RSI(14) + Both-Sides Wicks + Opening 1m & Closing 20s Guards):
    * 1. Timeframe & Indicator: Analyses live 5-minute (300s) OHLC candlesticks and 14-period RSI.
-   * 2. Both-Sides Wicks Requirement: Active 5-minute candlestick MUST have both an upper wick and a lower wick.
-   * 3. 10-Second Close Guard: No trade if the 5-minute candlestick has <= 10 seconds remaining.
-   * 4. Direction & Entry:
+   * 2. Staggered Scanning Timing: Desynchronized across markets (25s phase offset) so markets scan at distinct times.
+   * 3. Opening 1-Minute Guard: First 60 seconds (0s–60s) of the 5m candle has NO TRADE to await clear confirmation.
+   * 4. Closing 20-Second Guard: Last 20 seconds (≤20s left) of the 5m candle has NO TRADE to avoid candle trend shifts.
+   * 5. Both-Sides Wicks Requirement: Active 5-minute candlestick MUST have both an upper wick and a lower wick.
+   * 6. Direction & Entry:
    *    - High Tick Strategy: 5m RSI < 50 -> Activates Run button. Entry is 3 consecutive rising ticks (▲ ▲ ▲).
    *    - Low Tick Strategy:  5m RSI > 50 -> Activates Run button. Entry is 3 consecutive falling ticks (▼ ▼ ▼).
    */
@@ -2144,22 +2425,36 @@ export class MultiMarketSignalScanner {
     const dirs = this.extractStepDirections(prices).slice(-100);
     const pipUnit = Math.pow(10, -st.market.decimals);
 
-    const bucketEpoch5m = Math.floor(nowSec / 300) * 300;
-    const candle5mSecondsLeft = Math.max(1, 300 - (nowSec - bucketEpoch5m));
-    const noTradeRemainingWindow = candle5mSecondsLeft <= 10;
+    const windowSec = this.getMarketWindow('high_low_tick', st.market.id);
+    const windowLabel = formatWindowDuration(windowSec);
+    const shiftedSec = nowSec + st.scanPhaseOffsetSec;
+    const phaseSec = shiftedSec % windowSec;
+    const candleSecondsLeft = Math.max(1, windowSec - phaseSec);
+    const secIntoCandle = phaseSec;
 
-    const candles5m = st.candles5m;
+    const OPENING_GUARD_SEC = 60; // First 1 minute no trade
+    const CLOSING_GUARD_SEC = 20; // Last 20 seconds no trade
+    const isOpeningGuard = secIntoCandle < OPENING_GUARD_SEC;
+    const isClosingGuard = candleSecondsLeft <= CLOSING_GUARD_SEC;
+    const inCandleGuard = isOpeningGuard || isClosingGuard;
+
+    const candles =
+      st.candles5m && st.candles5m.length > 0
+        ? st.candles5m
+        : st.candlesHighLow && st.candlesHighLow.length > 0
+        ? st.candlesHighLow
+        : st.candles2m;
     const activeCandle: Candle5m =
-      candles5m[candles5m.length - 1] ?? {
-        epoch: bucketEpoch5m,
+      candles[candles.length - 1] ?? {
+        epoch: nowSec - phaseSec,
         open: st.lastPrice,
         high: st.lastPrice,
         low: st.lastPrice,
         close: st.lastPrice,
       };
 
-    const closes5m = candles5m.map((c) => c.close);
-    const rsi5m = this.computeWilderRsi14(closes5m, 14);
+    const closes = candles.map((c) => c.close);
+    const rsi5m = this.computeWilderRsi14(closes, 14);
 
     const bodyTop = Math.max(activeCandle.open, activeCandle.close);
     const bodyBottom = Math.min(activeCandle.open, activeCandle.close);
@@ -2264,13 +2559,13 @@ export class MultiMarketSignalScanner {
       }
     }
 
-    // Determine strategy side from 5m RSI (< 50 => HIGH_TICK, > 50 => LOW_TICK)
+    // Determine strategy side from RSI (< 50 => HIGH_TICK, > 50 => LOW_TICK)
     const rsiFavorsHigh = rsi5m < 50;
     const rsiFavorsLow = rsi5m > 50;
     const desiredSide: 'HIGH_TICK' | 'LOW_TICK' = rsiFavorsHigh ? 'HIGH_TICK' : 'LOW_TICK';
     let targetTick = desiredSide === 'HIGH_TICK' ? bestHighTick : bestLowTick;
 
-    // Keep targetTick stable within the same 5-minute candle once locked on the same RSI side
+    // Keep targetTick stable within the same candle once locked on the same RSI side
     if (
       st.lockedHighLowTick &&
       st.lockedHighLowTick.candleEpoch === activeCandle.epoch &&
@@ -2280,7 +2575,7 @@ export class MultiMarketSignalScanner {
     }
 
     const canActivateRun =
-      hasBothWicks && !noTradeRemainingWindow && (rsiFavorsHigh || rsiFavorsLow);
+      !inCandleGuard && hasBothWicks && (rsiFavorsHigh || rsiFavorsLow);
 
     if (canActivateRun) {
       st.lockedHighLowTick = {
@@ -2288,7 +2583,7 @@ export class MultiMarketSignalScanner {
         contractType: desiredSide,
         targetTick,
       };
-    } else if (noTradeRemainingWindow) {
+    } else if (inCandleGuard) {
       st.lockedHighLowTick = undefined;
     }
 
@@ -2309,17 +2604,17 @@ export class MultiMarketSignalScanner {
     const entryConfidencePct = Math.min(92, Math.max(selectedHitPct, 52 + rsiDistanceBoost));
     const payoutMultiplier = 4.2;
 
-    const minsLeft = Math.floor(candle5mSecondsLeft / 60);
-    const secsLeft = candle5mSecondsLeft % 60;
+    const minsLeft = Math.floor(candleSecondsLeft / 60);
+    const secsLeft = candleSecondsLeft % 60;
     const timerFormatted = `${minsLeft}:${secsLeft.toString().padStart(2, '0')}`;
 
-    const highLowBreakdownSummary = `5m Left ${timerFormatted} · 5t ${
+    const highLowBreakdownSummary = `${windowLabel} Left ${timerFormatted} · 5t ${
       contractType === 'HIGH_TICK' ? 'Highs' : 'Lows'
     }: #1 ${breakdownSide[1]}% · #2 ${breakdownSide[2]}% · #3 ${breakdownSide[3]}% · #4 ${
       breakdownSide[4]
     }% · #5 ${breakdownSide[5]}%`;
 
-    const marketTrendSummary = `5m RSI ${rsi5m.toFixed(1)} (${
+    const marketTrendSummary = `${windowLabel} RSI ${rsi5m.toFixed(1)} (${
       rsiFavorsHigh ? '<50 High' : rsiFavorsLow ? '>50 Low' : '=50 Neutral'
     }) · ${hasBothWicks ? 'Both Wicks ✔' : 'Wait Wicks'}`;
 
@@ -2330,9 +2625,12 @@ export class MultiMarketSignalScanner {
     let patternSummary = '';
     let scanStatusNote = '';
 
-    if (noTradeRemainingWindow) {
+    if (isOpeningGuard) {
       isScanning = true;
-      scanStatusNote = `No trade · 5m candle closing (${candle5mSecondsLeft}s left ≤ 10s)`;
+      scanStatusNote = `Opening 1m guard (${OPENING_GUARD_SEC - secIntoCandle}s left) · Waiting for clear signal confirmation`;
+    } else if (isClosingGuard) {
+      isScanning = true;
+      scanStatusNote = `Closing 20s guard (${candleSecondsLeft}s left) · Protecting against trend change before new 5m candle`;
     } else if (!hasBothWicks) {
       isScanning = true;
       const missingDesc =
@@ -2341,19 +2639,19 @@ export class MultiMarketSignalScanner {
           : !hasUpperWick
           ? 'awaiting upper wick'
           : 'awaiting lower wick';
-      scanStatusNote = `5m RSI ${rsi5m.toFixed(1)} · 5m candle ${missingDesc} (${timerFormatted} left)`;
+      scanStatusNote = `${windowLabel} RSI ${rsi5m.toFixed(1)} · ${windowLabel} candle ${missingDesc} (${timerFormatted} left)`;
     } else if (!rsiFavorsHigh && !rsiFavorsLow) {
       isScanning = true;
-      scanStatusNote = `5m RSI exactly 50.0 · Awaiting RSI < 50 (High) or > 50 (Low)`;
+      scanStatusNote = `${windowLabel} RSI exactly 50.0 · Awaiting RSI < 50 (High) or > 50 (Low)`;
     } else {
       isScanning = false;
       hasStrongEdge = true;
       entryConfirmedNow = confirm.confirmedNow;
       distributionSubtext =
         contractType === 'HIGH_TICK'
-          ? `5m RSI ${rsi5m.toFixed(1)} (<50) · Both Wicks ✔ · ${timerFormatted} left`
-          : `5m RSI ${rsi5m.toFixed(1)} (>50) · Both Wicks ✔ · ${timerFormatted} left`;
-      patternSummary = `${confirm.statusText} · Continuous (Stop ≤10s candle end)`;
+          ? `${windowLabel} RSI ${rsi5m.toFixed(1)} (<50) · Both Wicks ✔ · ${timerFormatted} left`
+          : `${windowLabel} RSI ${rsi5m.toFixed(1)} (>50) · Both Wicks ✔ · ${timerFormatted} left`;
+      patternSummary = `${confirm.statusText} · Continuous (Safe window: 1m–4m40s)`;
     }
 
     const rawWindowWinners =
@@ -2371,14 +2669,18 @@ export class MultiMarketSignalScanner {
       candle5mDirection,
       rsi5m,
       candle5mHasBothWicks: hasBothWicks,
-      candle5mSecondsLeft,
+      candle5mSecondsLeft: candleSecondsLeft,
+      isOpeningGuard,
+      isClosingGuard,
       marketTrend: rsiFavorsHigh ? 'uptrend' : rsiFavorsLow ? 'downtrend' : 'ranging',
       marketTrendSummary,
       recentWindowWinners,
       highLowBreakdownSummary,
-      windowTickCount: candles5m.length,
+      windowTickCount: candles.length,
       isScanning,
-      scanSecondsLeft: candle5mSecondsLeft,
+      scanSecondsLeft: candleSecondsLeft,
+      scanTotalSeconds: windowSec,
+      scanWindowLabel: windowLabel,
       scanStatusNote,
       evenPct: 0,
       oddPct: 0,
@@ -2397,7 +2699,7 @@ export class MultiMarketSignalScanner {
       entryConfirmedNow,
       entryConfidencePct,
       payoutMultiplier,
-      edgeDeltaPct: Math.max(4, selectedHitPct - 20),
+      edgeDeltaPct: Math.max(0, entryConfidencePct - 20),
       distributionSubtext,
       patternSummary,
       topBarriersSummary: '',
