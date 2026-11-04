@@ -589,11 +589,34 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
                   onChange={(e) => updateStructuredField({ marketId: e.target.value })}
                   className="w-full px-3 py-2 rounded-xl bg-[#080d16] border border-slate-700 text-xs font-semibold text-white"
                 >
-                  {SYNTHETIC_MARKETS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} ({m.id})
-                    </option>
-                  ))}
+                  <optgroup label="Plain Volatilities">
+                    {SYNTHETIC_MARKETS.filter((m) => m.category === 'volatility').map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.symbol} — {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Volatility (1s) Indices">
+                    {SYNTHETIC_MARKETS.filter((m) => m.category === 'volatility-1s').map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.symbol} — {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Jump Indices (J10 – J100)">
+                    {SYNTHETIC_MARKETS.filter((m) => m.category === 'jump').map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.symbol} — {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Step Indices (STEP 100 – STEP 500)">
+                    {SYNTHETIC_MARKETS.filter((m) => m.category === 'step').map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.symbol} — {m.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 

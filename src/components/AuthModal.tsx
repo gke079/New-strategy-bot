@@ -522,24 +522,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
-              {/* Reset Demo Balance Presets */}
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                  <RotateCcw className="w-3.5 h-3.5 text-[#00e599]" />
-                  <span>Reset Virtual Demo Balance</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[1000, 5000, 10000].map((amt) => (
-                    <button
-                      key={amt}
-                      onClick={() => handleReset(amt)}
-                      className="py-2 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 hover:border-sky-400 text-xs font-mono font-bold text-sky-800 transition-all cursor-pointer"
-                    >
-                      ${amt.toLocaleString()}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {/* Username */}
               <div className="space-y-1.5">

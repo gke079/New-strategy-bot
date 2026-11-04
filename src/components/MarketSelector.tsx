@@ -34,9 +34,16 @@ export const MarketSelector: React.FC<MarketSelectorProps> = ({
     { id: 'all', label: 'All Indices' },
     { id: 'volatility', label: '⚡ Plain Volatilities' },
     { id: 'volatility-1s', label: '⏱️ Volatility (1s)' },
-    { id: 'step', label: '🪜 Step Indices (100-500)' },
     { id: 'jump', label: '🦘 Jump Indices (10-100)' },
+    { id: 'step', label: '🪜 Step Indices (100-500)' },
   ];
+
+  const categorySectionLabels: Record<string, string> = {
+    volatility: '⚡ Plain Volatilities (V10 – V100)',
+    'volatility-1s': '⏱️ Volatilities 1s (V10 1s – V100 1s)',
+    jump: '🦘 Jump Indices (J10 – J100)',
+    step: '🪜 Step Indices (STEP 100 – STEP 500)',
+  };
 
   const filteredMarkets = useMemo(() => {
     return SYNTHETIC_MARKETS.filter((m) => {
@@ -56,10 +63,10 @@ export const MarketSelector: React.FC<MarketSelectorProps> = ({
         return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
       case 'volatility-1s':
         return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
-      case 'step':
-        return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
       case 'jump':
         return 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+      case 'step':
+        return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
       case 'boom-crash':
         return 'bg-rose-500/10 text-rose-400 border-rose-500/20';
     }
@@ -189,63 +196,79 @@ export const MarketSelector: React.FC<MarketSelectorProps> = ({
                 No matching indices found.
               </div>
             ) : (
-              filteredMarkets.map((market) => {
+              filteredMarkets.map((market, index) => {
                 const isSelected = market.id === selectedMarket.id;
+                const isNewCategory =
+                  selectedCategory === 'all' &&
+                  (index === 0 || market.category !== filteredMarkets[index - 1].category);
+
                 return (
-                  <button
-                    key={market.id}
-                    onClick={() => {
-                      onSelectMarket(market);
-                      setIsOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-colors cursor-pointer ${
-                      isSelected
-                        ? isLight
-                          ? 'bg-neutral-100 text-neutral-950 font-bold border border-neutral-300'
-                          : 'bg-neutral-900 text-white font-bold border border-neutral-750'
-                        : isLight
-                        ? 'hover:bg-neutral-50 text-neutral-700'
-                        : 'hover:bg-neutral-900/70 text-neutral-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          isSelected
-                            ? isLight
-                              ? 'bg-neutral-900'
-                              : 'bg-white'
-                            : isLight
-                            ? 'bg-neutral-300'
-                            : 'bg-neutral-600'
+                  <React.Fragment key={market.id}>
+                    {isNewCategory && (
+                      <div
+                        className={`px-3 py-1.5 text-[10px] font-bold tracking-wider uppercase font-mono sticky top-0 z-10 backdrop-blur-md flex items-center justify-between border-y ${
+                          isLight
+                            ? 'bg-neutral-100/95 text-neutral-600 border-neutral-200'
+                            : 'bg-neutral-900/95 text-neutral-400 border-neutral-800'
                         }`}
-                      />
-                      <div>
-                        <div className="text-sm font-bold flex items-center gap-2 font-mono">
-                          <span>{market.symbol}</span>
-                          <span
-                            className={`text-[10px] px-1.5 py-0.2 rounded border font-sans font-medium capitalize ${getCategoryBadge(
-                              market.category
-                            )}`}
-                          >
-                            {market.category.replace('-', ' ')}
-                          </span>
-                        </div>
-                        <div
-                          className={`text-xs font-mono ${
-                            isLight ? 'text-neutral-500' : 'text-neutral-400'
+                      >
+                        <span>{categorySectionLabels[market.category] || market.category}</span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => {
+                        onSelectMarket(market);
+                        setIsOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-colors cursor-pointer ${
+                        isSelected
+                          ? isLight
+                            ? 'bg-neutral-100 text-neutral-950 font-bold border border-neutral-300'
+                            : 'bg-neutral-900 text-white font-bold border border-neutral-750'
+                          : isLight
+                          ? 'hover:bg-neutral-50 text-neutral-700'
+                          : 'hover:bg-neutral-900/70 text-neutral-300'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            isSelected
+                              ? isLight
+                                ? 'bg-neutral-900'
+                                : 'bg-white'
+                              : isLight
+                              ? 'bg-neutral-300'
+                              : 'bg-neutral-600'
                           }`}
-                        >
-                          Pip: {market.pipSize} • {market.decimals} decimals
+                        />
+                        <div>
+                          <div className="text-sm font-bold flex items-center gap-2 font-mono">
+                            <span>{market.symbol}</span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.2 rounded border font-sans font-medium capitalize ${getCategoryBadge(
+                                market.category
+                              )}`}
+                            >
+                              {market.category.replace('-', ' ')}
+                            </span>
+                          </div>
+                          <div
+                            className={`text-xs font-mono ${
+                              isLight ? 'text-neutral-500' : 'text-neutral-400'
+                            }`}
+                          >
+                            Pip: {market.pipSize} • {market.decimals} decimals
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    {isSelected && (
-                      <Check
-                        className={`w-4 h-4 ${isLight ? 'text-neutral-900' : 'text-white'}`}
-                      />
-                    )}
-                  </button>
+                      {isSelected && (
+                        <Check
+                          className={`w-4 h-4 ${isLight ? 'text-neutral-900' : 'text-white'}`}
+                        />
+                      )}
+                    </button>
+                  </React.Fragment>
                 );
               })
             )}

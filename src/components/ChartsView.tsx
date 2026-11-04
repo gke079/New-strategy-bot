@@ -119,11 +119,34 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
               }}
               className="px-2.5 py-1.5 rounded-xl bg-[#090d16] border border-slate-700 text-xs font-semibold text-white cursor-pointer focus:outline-none focus:border-[#00e599]"
             >
-              {markets.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name.replace(' Index', '')} ({m.id})
-                </option>
-              ))}
+              <optgroup label="Plain Volatilities">
+                {markets.filter((m) => m.category === 'volatility').map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Volatility (1s) Indices">
+                {markets.filter((m) => m.category === 'volatility-1s').map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Jump Indices (J10 – J100)">
+                {markets.filter((m) => m.category === 'jump').map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Step Indices (STEP 100 – STEP 500)">
+                {markets.filter((m) => m.category === 'step').map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           )}
         </div>
@@ -264,8 +287,12 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
                 <strong>"fx Indicators" → RSI (Relative Strength Index)</strong> in the chart toolbar to overlay RSI visually alongside live scanner RSI(14).
               </span>
             </div>
-            <div className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-slate-400 shrink-0">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <div className="hidden sm:flex items-center gap-2 font-mono text-[11px] text-slate-400 shrink-0">
+              <span className="flex items-center gap-1 text-[#00e599]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00e599] animate-pulse" />
+                <span>api.derivws.com (Direct)</span>
+              </span>
+              <span>•</span>
               <span>Instrument: {market.id}</span>
             </div>
           </div>

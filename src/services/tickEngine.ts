@@ -1,4 +1,4 @@
-import { Market, Tick } from '../types';
+import { Market, Tick, OHLCCandle } from '../types';
 
 export type TickListener = (tick: Tick, allTicks: Tick[]) => void;
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected';
@@ -11,11 +11,18 @@ export interface DerivAccountInfo {
   isVirtual: boolean;
 }
 
+export const DERIV_PUBLIC_ENDPOINT = 'wss://api.derivws.com/trading/v1/options/ws/public';
+
 export const DERIV_SERVERS = [
-  { id: 'prod', name: 'Deriv Primary (ws.derivws.com)', url: 'wss://ws.derivws.com/websockets/v3' },
-  { id: 'blue', name: 'Deriv Blue (blue.derivws.com)', url: 'wss://blue.derivws.com/websockets/v3' },
-  { id: 'green', name: 'Deriv Green (green.derivws.com)', url: 'wss://green.derivws.com/websockets/v3' },
-  { id: 'red', name: 'Deriv Red (red.derivws.com)', url: 'wss://red.derivws.com/websockets/v3' },
+  {
+    id: 'options_public',
+    name: 'Deriv Options API Public (Direct wss://api.derivws.com)',
+    url: 'wss://api.derivws.com/trading/v1/options/ws/public',
+  },
+  { id: 'prod', name: 'Deriv Primary Gateway (ws.derivws.com)', url: 'wss://ws.derivws.com/websockets/v3' },
+  { id: 'blue', name: 'Deriv Blue Gateway (blue.derivws.com)', url: 'wss://blue.derivws.com/websockets/v3' },
+  { id: 'green', name: 'Deriv Green Gateway (green.derivws.com)', url: 'wss://green.derivws.com/websockets/v3' },
+  { id: 'red', name: 'Deriv Red Gateway (red.derivws.com)', url: 'wss://red.derivws.com/websockets/v3' },
   { id: 'binary', name: 'Deriv / Binary (ws.binaryws.com)', url: 'wss://ws.binaryws.com/websockets/v3' },
 ];
 
@@ -23,7 +30,10 @@ export class TickStreamEngine {
   private currentMarket: Market;
   private ticks: Tick[] = [];
   private ticksWindow: number = 1000;
+  private candles: OHLCCandle[] = [];
+  private candlesGranularity: number = 60;
   private listeners: Set<TickListener> = new Set();
+  private candlesListeners: Set<(candles: OHLCCandle[]) => void> = new Set();
   private statusListeners: Set<(status: ConnectionStatus) => void> = new Set();
   private accountListeners: Set<(account: DerivAccountInfo | null) => void> = new Set();
   private authErrorListeners: Set<(error: string | null) => void> = new Set();
@@ -38,7 +48,6 @@ export class TickStreamEngine {
   private ws: WebSocket | null = null;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
-  private liveTickerInterval: ReturnType<typeof setInterval> | null = null;
   private appId: string = '1089';
   private apiToken: string = '';
   private reconnectAttempts: number = 0;
@@ -47,6 +56,7 @@ export class TickStreamEngine {
   private tickSpeedMs: number = 1000;
 
   private endpoints: string[] = [
+    'wss://api.derivws.com/trading/v1/options/ws/public',
     'wss://ws.derivws.com/websockets/v3',
     'wss://blue.derivws.com/websockets/v3',
     'wss://green.derivws.com/websockets/v3',
@@ -59,19 +69,8 @@ export class TickStreamEngine {
     this.currentMarket = initialMarket;
     this.ticksWindow = initialWindow;
     this.currentPipSize = initialMarket.decimals;
-
-    // Load any user-calibrated spot price for this market
-    let startPrice = initialMarket.basePrice;
-    try {
-      const savedCalibrated = localStorage.getItem(`tickedge_calibrated_price_${initialMarket.id}`);
-      if (savedCalibrated) {
-        const parsed = parseFloat(savedCalibrated);
-        if (!isNaN(parsed) && parsed > 0) {
-          startPrice = parsed;
-        }
-      }
-    } catch {}
-    this.currentPrice = startPrice;
+    this.currentPrice = 0;
+    this.ticks = [];
 
     // Check localStorage for saved Deriv credentials
     try {
@@ -79,19 +78,15 @@ export class TickStreamEngine {
       if (savedAppId) this.appId = savedAppId;
       const savedToken = localStorage.getItem('tickedge_deriv_token');
       if (savedToken) this.apiToken = savedToken;
-      const savedEndpoint = localStorage.getItem('tickedge_deriv_endpoint');
-      if (savedEndpoint) {
-        this.endpoints = [savedEndpoint, ...this.endpoints.filter((e) => e !== savedEndpoint)];
+      let savedEndpoint = localStorage.getItem('tickedge_deriv_endpoint');
+      if (!savedEndpoint || savedEndpoint.includes('websockets/v3')) {
+        savedEndpoint = DERIV_PUBLIC_ENDPOINT;
+        localStorage.setItem('tickedge_deriv_endpoint', DERIV_PUBLIC_ENDPOINT);
       }
+      this.endpoints = [savedEndpoint, ...this.endpoints.filter((e) => e !== savedEndpoint)];
     } catch {}
 
-    // 1. Seed baseline ticks immediately around the start price so the UI is active and never blank
-    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), startPrice);
-
-    // 2. Start the live ticker loop so ticks are dynamic from the very first second
-    this.startLiveTicker();
-
-    // 3. Connect to Deriv Live WebSocket
+    // Connect immediately to Deriv Live WebSocket for real prices
     this.initWebSocket();
   }
 
@@ -103,25 +98,15 @@ export class TickStreamEngine {
     this.isLiveFeed = false;
     this.notifyLiveFeed();
 
-    // Load calibrated price if available for this market
-    let startPrice = market.basePrice;
-    try {
-      const savedCalibrated = localStorage.getItem(`tickedge_calibrated_price_${market.id}`);
-      if (savedCalibrated) {
-        const parsed = parseFloat(savedCalibrated);
-        if (!isNaN(parsed) && parsed > 0) {
-          startPrice = parsed;
-        }
-      }
-    } catch {}
-    this.currentPrice = startPrice;
-
-    // Seed baseline ticks for new market
-    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), startPrice);
+    // Clear previous market ticks: ONLY real Deriv ticks will be populated
+    this.ticks = [];
+    this.currentPrice = 0;
+    this.notifyAll();
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(JSON.stringify({ forget_all: 'ticks' }));
+        this.ws.send(JSON.stringify({ forget_all: 'candles' }));
       } catch {}
       this.subscribeTicksAndHistory();
     }
@@ -149,7 +134,6 @@ export class TickStreamEngine {
 
   public setSpeed(speedMs: number) {
     this.tickSpeedMs = Math.max(200, Math.min(5000, speedMs));
-    this.startLiveTicker();
   }
 
   public clearBuffer() {
@@ -209,23 +193,54 @@ export class TickStreamEngine {
     this.liveFeedListeners.forEach((listener) => listener(this.isLiveFeed));
   }
 
+  public getCandles(): OHLCCandle[] {
+    return [...this.candles];
+  }
+
+  public subscribeCandles(listener: (candles: OHLCCandle[]) => void): () => void {
+    this.candlesListeners.add(listener);
+    if (this.candles.length > 0) {
+      listener(this.candles);
+    }
+    return () => this.candlesListeners.delete(listener);
+  }
+
+  public requestOHLC(granularity: number = 60, count: number = 50) {
+    this.candlesGranularity = granularity;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ forget_all: 'candles' }));
+        this.ws.send(
+          JSON.stringify({
+            ticks_history: this.currentMarket.id,
+            end: 'latest',
+            count,
+            style: 'candles',
+            granularity,
+            subscribe: 1,
+          })
+        );
+      } catch (err) {
+        console.warn('Failed to send OHLC request:', err);
+      }
+    }
+  }
+
+  private notifyCandles() {
+    this.candlesListeners.forEach((listener) => {
+      try {
+        listener(this.candles);
+      } catch {}
+    });
+  }
+
   public calibratePrice(newPrice: number) {
     if (isNaN(newPrice) || newPrice <= 0) return;
     this.currentPrice = newPrice;
-    try {
-      localStorage.setItem(`tickedge_calibrated_price_${this.currentMarket.id}`, String(newPrice));
-    } catch {}
-
-    // Reseed baseline ticks smoothly around this exact spot price
-    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), newPrice);
   }
 
   public resetPriceCalibration() {
-    try {
-      localStorage.removeItem(`tickedge_calibrated_price_${this.currentMarket.id}`);
-    } catch {}
-    this.currentPrice = this.currentMarket.basePrice;
-    this.seedBaselineTicks(Math.min(this.ticksWindow, 100), this.currentPrice);
+    this.currentPrice = 0;
   }
 
   public getAppId(): string {
@@ -358,10 +373,11 @@ export class TickStreamEngine {
     try {
       // 1. Forget previous subscriptions to avoid duplicate feeds
       this.ws.send(JSON.stringify({ forget_all: 'ticks' }));
+      this.ws.send(JSON.stringify({ forget_all: 'candles' }));
     } catch {}
 
     try {
-      // 2. Request historical ticks AND subscribe to live ticks atomically
+      // 2. Request historical ticks AND subscribe to live ticks directly
       this.ws.send(
         JSON.stringify({
           ticks_history: this.currentMarket.id,
@@ -373,6 +389,22 @@ export class TickStreamEngine {
       );
     } catch (err) {
       console.warn('Failed to send ticks_history subscription:', err);
+    }
+
+    try {
+      // 3. Request historical OHLC candles AND subscribe to live OHLC stream directly
+      this.ws.send(
+        JSON.stringify({
+          ticks_history: this.currentMarket.id,
+          end: 'latest',
+          count: 50,
+          style: 'candles',
+          granularity: this.candlesGranularity,
+          subscribe: 1,
+        })
+      );
+    } catch (err) {
+      console.warn('Failed to send OHLC candles subscription:', err);
     }
   }
 
@@ -459,6 +491,53 @@ export class TickStreamEngine {
           }
           this.setStatus('connected');
           this.notifyAll();
+        }
+      }
+
+      // Handle Historical OHLC Candles
+      else if (data.msg_type === 'candles' || data.candles) {
+        const rawCandles = data.candles || [];
+        if (Array.isArray(rawCandles) && rawCandles.length > 0) {
+          this.candles = rawCandles.map((c: any) => ({
+            epoch: (Number(c.epoch) || Math.floor(Date.now() / 1000)) * 1000,
+            open: Number(c.open),
+            high: Number(c.high),
+            low: Number(c.low),
+            close: Number(c.close),
+            granularity: Number(data.echo_req?.granularity) || this.candlesGranularity,
+          }));
+          this.notifyCandles();
+        }
+      }
+
+      // Handle Real-time Live OHLC Candle updates
+      else if (data.msg_type === 'ohlc' || data.ohlc) {
+        const ohlc = data.ohlc;
+        if (ohlc) {
+          const epoch = (Number(ohlc.open_time || ohlc.epoch) || Math.floor(Date.now() / 1000)) * 1000;
+          const open = Number(ohlc.open);
+          const high = Number(ohlc.high);
+          const low = Number(ohlc.low);
+          const close = Number(ohlc.close);
+          const lastCandle = this.candles[this.candles.length - 1];
+          if (lastCandle && lastCandle.epoch === epoch) {
+            lastCandle.high = Math.max(lastCandle.high, high);
+            lastCandle.low = Math.min(lastCandle.low, low);
+            lastCandle.close = close;
+          } else {
+            this.candles.push({
+              epoch,
+              open,
+              high,
+              low,
+              close,
+              granularity: Number(ohlc.granularity) || this.candlesGranularity,
+            });
+            if (this.candles.length > 100) {
+              this.candles.shift();
+            }
+          }
+          this.notifyCandles();
         }
       }
 
@@ -567,108 +646,16 @@ export class TickStreamEngine {
     }
   }
 
-  /**
-   * Generates baseline initial ticks around the market's calibrated or basePrice
-   * so that the UI is active, responsive, and shows accurate formatting while
-   * the live Deriv WebSocket connection handshakes.
-   */
-  private seedBaselineTicks(count: number = 100, customBasePrice?: number) {
-    const ticks: Tick[] = [];
-    let price = customBasePrice !== undefined ? customBasePrice : (this.currentPrice || this.currentMarket.basePrice);
-    const decimals = this.currentMarket.decimals;
-    const pip = this.currentMarket.pipSize;
-    const now = Date.now();
-
-    for (let i = 0; i < count; i++) {
-      const delta = (Math.random() - 0.495) * pip * 4;
-      const prevPrice = price;
-      price = Math.max(0.0001, prevPrice + delta);
-      const diff = price - prevPrice;
-      const direction = Math.abs(diff) < pip * 0.1 ? 'flat' : diff > 0 ? 'up' : 'down';
-      const quoteFormatted = price.toFixed(decimals);
-      const lastChar = quoteFormatted.charAt(quoteFormatted.length - 1);
-      const lastDigit = parseInt(lastChar, 10);
-
-      ticks.push({
-        epoch: now - (count - i) * 1000,
-        quote: price,
-        quoteFormatted,
-        lastDigit: isNaN(lastDigit) ? 0 : lastDigit,
-        direction,
-        change: diff,
-      });
-    }
-
-    this.ticks = ticks;
-    this.currentPrice = price;
-    this.notifyAll();
-  }
-
-  /**
-   * Continuous live ticker loop:
-   * Guarantees ticks are dynamic and never dormant!
-   * If real Deriv ticks are actively streaming in, they take priority (no synthetic interference).
-   * If real Deriv ticks haven't arrived within the expected interval (handshaking, delay, or offline),
-   * live ticks are emitted so the price, digit frequency, and bot evaluation stay active!
-   */
-  private startLiveTicker() {
-    if (this.liveTickerInterval) {
-      clearInterval(this.liveTickerInterval);
-    }
-
-    this.liveTickerInterval = setInterval(() => {
-      if (this.isDestroyed) return;
-
-      const now = Date.now();
-      // If we received a real Deriv tick within the last 3500ms, let Deriv stream naturally without interference
-      if (this.lastRealTickEpoch > 0 && (now - this.lastRealTickEpoch) < 3500) {
-        if (!this.isLiveFeed) {
-          this.isLiveFeed = true;
-          this.notifyLiveFeed();
-        }
-        return;
-      }
-
-      // No real tick received within expected time: mark as simulated/calibrated and emit a tick so the stream is NEVER dormant!
-      if (this.isLiveFeed) {
-        this.isLiveFeed = false;
-        this.notifyLiveFeed();
-      }
-      this.generateLiveTick();
-    }, this.tickSpeedMs);
-  }
-
-  private generateLiveTick() {
-    const decimals = this.currentMarket.decimals;
-    const pip = this.currentMarket.pipSize;
-    const delta = (Math.random() - 0.495) * pip * 3;
-    const prevPrice = this.currentPrice || this.currentMarket.basePrice;
-    const newPrice = Math.max(0.0001, prevPrice + delta);
-    const diff = newPrice - prevPrice;
-    const direction = Math.abs(diff) < pip * 0.1 ? 'flat' : diff > 0 ? 'up' : 'down';
-    const quoteFormatted = newPrice.toFixed(decimals);
-    const lastChar = quoteFormatted.charAt(quoteFormatted.length - 1);
-    const lastDigit = parseInt(lastChar, 10);
-
-    this.currentPrice = newPrice;
-    this.addTick({
-      epoch: Date.now(),
-      quote: newPrice,
-      quoteFormatted,
-      lastDigit: isNaN(lastDigit) ? 0 : lastDigit,
-      direction,
-      change: diff,
-    });
-  }
-
   public destroy() {
     this.isDestroyed = true;
-    if (this.liveTickerInterval) {
-      clearInterval(this.liveTickerInterval);
-      this.liveTickerInterval = null;
-    }
+    if (this.pingInterval) clearInterval(this.pingInterval);
+    if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
     this.cleanupSocket();
     this.listeners.clear();
     this.statusListeners.clear();
+    this.accountListeners.clear();
+    this.authErrorListeners.clear();
+    this.liveFeedListeners.clear();
+    this.candlesListeners.clear();
   }
 }

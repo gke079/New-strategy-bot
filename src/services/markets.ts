@@ -2,7 +2,7 @@ import { Market } from '../types';
 
 export const SYNTHETIC_MARKETS: Market[] = [
   // ==========================================
-  // 1. PLAIN VOLATILITY INDICES (V10, 25, 50, 75, 100)
+  // 1. PLAIN VOLATILITY INDICES (V10, V25, V50, V75, V100)
   // ==========================================
   {
     id: 'R_10',
@@ -56,7 +56,7 @@ export const SYNTHETIC_MARKETS: Market[] = [
   },
 
   // ==========================================
-  // 2. VOLATILITY (1s) INDICES (including 15 and 90)
+  // 2. 1s VOLATILITY INDICES (V10 1s, V15 1s, V25 1s, V30 1s, V50 1s, V75 1s, V90 1s, V100 1s)
   // ==========================================
   {
     id: '1HZ10V',
@@ -87,6 +87,16 @@ export const SYNTHETIC_MARKETS: Market[] = [
     basePrice: 2450.82,
     volatility: 0.0003,
     pipSize: 0.01,
+  },
+  {
+    id: '1HZ30V',
+    symbol: 'V30 (1s)',
+    name: 'Volatility 30 (1s) Index',
+    category: 'volatility-1s',
+    decimals: 3,
+    basePrice: 6100.125,
+    volatility: 0.00035,
+    pipSize: 0.001,
   },
   {
     id: '1HZ50V',
@@ -124,107 +134,13 @@ export const SYNTHETIC_MARKETS: Market[] = [
     name: 'Volatility 100 (1s) Index',
     category: 'volatility-1s',
     decimals: 2,
-    basePrice: 1200.00,
+    basePrice: 1200.0,
     volatility: 0.0008,
     pipSize: 0.01,
   },
-  {
-    id: '1HZ150V',
-    symbol: 'V150 (1s)',
-    name: 'Volatility 150 (1s) Index',
-    category: 'volatility-1s',
-    decimals: 2,
-    basePrice: 8520.45,
-    volatility: 0.0009,
-    pipSize: 0.01,
-  },
-  {
-    id: '1HZ200V',
-    symbol: 'V200 (1s)',
-    name: 'Volatility 200 (1s) Index',
-    category: 'volatility-1s',
-    decimals: 2,
-    basePrice: 12450.15,
-    volatility: 0.0011,
-    pipSize: 0.01,
-  },
-  {
-    id: '1HZ250V',
-    symbol: 'V250 (1s)',
-    name: 'Volatility 250 (1s) Index',
-    category: 'volatility-1s',
-    decimals: 2,
-    basePrice: 16820.65,
-    volatility: 0.0013,
-    pipSize: 0.01,
-  },
-  {
-    id: '1HZ300V',
-    symbol: 'V300 (1s)',
-    name: 'Volatility 300 (1s) Index',
-    category: 'volatility-1s',
-    decimals: 2,
-    basePrice: 21940.35,
-    volatility: 0.0015,
-    pipSize: 0.01,
-  },
 
   // ==========================================
-  // 3. STEP INDICES (100, 200, 300, 400, 500)
-  // ==========================================
-  {
-    id: 'stp_index_100',
-    symbol: 'STEP 100',
-    name: 'Step Index 100',
-    category: 'step',
-    decimals: 1,
-    basePrice: 8520.4,
-    volatility: 0.0003,
-    pipSize: 0.1,
-  },
-  {
-    id: 'stp_index_200',
-    symbol: 'STEP 200',
-    name: 'Step Index 200',
-    category: 'step',
-    decimals: 1,
-    basePrice: 11420.8,
-    volatility: 0.00045,
-    pipSize: 0.1,
-  },
-  {
-    id: 'stp_index_300',
-    symbol: 'STEP 300',
-    name: 'Step Index 300',
-    category: 'step',
-    decimals: 1,
-    basePrice: 14510.6,
-    volatility: 0.0005,
-    pipSize: 0.1,
-  },
-  {
-    id: 'stp_index_400',
-    symbol: 'STEP 400',
-    name: 'Step Index 400',
-    category: 'step',
-    decimals: 1,
-    basePrice: 16980.2,
-    volatility: 0.00055,
-    pipSize: 0.1,
-  },
-  {
-    id: 'stp_index_500',
-    symbol: 'STEP 500',
-    name: 'Step Index 500',
-    category: 'step',
-    decimals: 1,
-    basePrice: 19850.5,
-    volatility: 0.0006,
-    pipSize: 0.1,
-  },
-
-  // ==========================================
-  // 4. JUMP INDICES (10, 25, 50, 75, 100)
+  // 3. JUMP INDICES (J10, J25, J50, J75, J100)
   // ==========================================
   {
     id: 'JD10',
@@ -276,7 +192,61 @@ export const SYNTHETIC_MARKETS: Market[] = [
     volatility: 0.001,
     pipSize: 0.01,
   },
+
+  // ==========================================
+  // 4. STEP INDICES (STEP 100, STEP 200, STEP 300, STEP 400, STEP 500)
+  // ==========================================
+  {
+    id: 'stp_index_100',
+    symbol: 'STEP 100',
+    name: 'Step Index 100',
+    category: 'step',
+    decimals: 1,
+    basePrice: 8520.4,
+    volatility: 0.0003,
+    pipSize: 0.1,
+  },
+  {
+    id: 'stp_index_200',
+    symbol: 'STEP 200',
+    name: 'Step Index 200',
+    category: 'step',
+    decimals: 1,
+    basePrice: 11420.8,
+    volatility: 0.00045,
+    pipSize: 0.1,
+  },
+  {
+    id: 'stp_index_300',
+    symbol: 'STEP 300',
+    name: 'Step Index 300',
+    category: 'step',
+    decimals: 1,
+    basePrice: 14510.6,
+    volatility: 0.0005,
+    pipSize: 0.1,
+  },
+  {
+    id: 'stp_index_400',
+    symbol: 'STEP 400',
+    name: 'Step Index 400',
+    category: 'step',
+    decimals: 1,
+    basePrice: 16980.2,
+    volatility: 0.00055,
+    pipSize: 0.1,
+  },
+  {
+    id: 'stp_index_500',
+    symbol: 'STEP 500',
+    name: 'Step Index 500',
+    category: 'step',
+    decimals: 1,
+    basePrice: 19850.5,
+    volatility: 0.0006,
+    pipSize: 0.1,
+  },
 ];
 
 export const DEFAULT_MARKET =
-  SYNTHETIC_MARKETS.find((m) => m.id === 'R_75') || SYNTHETIC_MARKETS[0]; // Volatility 75 Index
+  SYNTHETIC_MARKETS.find((m) => m.id === 'R_75') || SYNTHETIC_MARKETS[0];

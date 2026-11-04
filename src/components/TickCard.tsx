@@ -101,24 +101,13 @@ export const TickCard: React.FC<TickCardProps> = ({
             {isLiveFeed ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono shadow-[0_0_12px_rgba(16,185,129,0.25)]">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                Deriv Live Spot Feed
+                Real Deriv Live Feed
               </span>
             ) : (
-              <div className="flex items-center gap-1.5">
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/25 font-mono">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
-                  Simulated / Standalone
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsCalibrateOpen(true)}
-                  className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 transition-all flex items-center gap-1 cursor-pointer active:scale-95"
-                  title="Calibrate spot price to match your Deriv screen"
-                >
-                  <SlidersHorizontal className="w-2.5 h-2.5 text-indigo-400" />
-                  <span>Sync Spot Price</span>
-                </button>
-              </div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/25 font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                Connecting Real Deriv Feed...
+              </span>
             )}
           </div>
 

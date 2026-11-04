@@ -20,6 +20,15 @@ export interface Tick {
   change: number;
 }
 
+export interface OHLCCandle {
+  epoch: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  granularity?: number;
+}
+
 export interface DigitStat {
   digit: number;
   count: number;

@@ -53,9 +53,11 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
 
   const [serverUrl, setServerUrl] = useState<string>(() => {
     try {
-      return localStorage.getItem('tickedge_deriv_endpoint') || 'wss://ws.derivws.com/websockets/v3';
+      const saved = localStorage.getItem('tickedge_deriv_endpoint');
+      if (saved && !saved.includes('websockets/v3')) return saved;
+      return 'wss://api.derivws.com/trading/v1/options/ws/public';
     } catch {
-      return 'wss://ws.derivws.com/websockets/v3';
+      return 'wss://api.derivws.com/trading/v1/options/ws/public';
     }
   });
 
@@ -73,7 +75,11 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
         const savedToken = localStorage.getItem('tickedge_deriv_token');
         if (savedToken) setApiToken(savedToken);
         const savedEndpoint = localStorage.getItem('tickedge_deriv_endpoint');
-        if (savedEndpoint) setServerUrl(savedEndpoint);
+        if (savedEndpoint && !savedEndpoint.includes('websockets/v3')) {
+          setServerUrl(savedEndpoint);
+        } else {
+          setServerUrl('wss://api.derivws.com/trading/v1/options/ws/public');
+        }
       } catch {}
       setFeedbackMessage(null);
       setIsApplying(false);
@@ -86,7 +92,7 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
     if (e) e.preventDefault();
     const cleanAppId = appId.trim() || '1089';
     const cleanToken = apiToken.trim();
-    const cleanServer = serverUrl.trim() || 'wss://ws.derivws.com/websockets/v3';
+    const cleanServer = serverUrl.trim() || 'wss://api.derivws.com/trading/v1/options/ws/public';
 
     try {
       localStorage.setItem('tickedge_deriv_app_id', cleanAppId);
@@ -119,11 +125,11 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
     } catch {}
     const cleanAppId = appId.trim() || '1089';
     setIsApplying(true);
-    setFeedbackMessage('Reverting to virtual simulation mode...');
+    setFeedbackMessage('Disconnecting token...');
     onConnectWebSocket(cleanAppId, '', serverUrl);
     setTimeout(() => {
       setIsApplying(false);
-      setFeedbackMessage('Cleared token. Simulation mode active.');
+      setFeedbackMessage('Token removed. Public live Deriv feed active.');
     }, 800);
   };
 
@@ -350,6 +356,12 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
                       </option>
                     ))}
                   </select>
+                  {serverUrl.includes('trading/v1/options/ws/public') && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-[#00e599] font-mono mt-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#00e599] animate-pulse" />
+                      <span>Direct Options WS Gateway — live ticks & historical OHLC, bypassing legacy gateways</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Deriv App Registration & Redirect URL Helper */}
@@ -451,7 +463,7 @@ export const DerivApiModal: React.FC<DerivApiModalProps> = ({
                     className="px-3 py-2 bg-[#111827] border border-slate-800 rounded-lg text-white font-mono text-xs focus:ring-1 focus:ring-[#00e599] focus:outline-none"
                   />
                   <div className="flex justify-between items-center text-[10px] text-slate-400 pt-0.5">
-                    <span>Leave blank for risk-free virtual simulation.</span>
+                    <span>Authenticates real account balance and direct Deriv contract execution.</span>
                     <a
                       href="https://app.deriv.com/account/api-token"
                       target="_blank"

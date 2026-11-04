@@ -92,7 +92,7 @@ export default function App() {
   const [derivAccountInfo, setDerivAccountInfo] = useState<DerivAccountInfo | null>(null);
   const [derivAuthError, setDerivAuthError] = useState<string | null>(null);
 
-  // User Account & Virtual Demo Balance
+  // User Account (Synchronized live from Deriv)
   const [userAccount, setUserAccount] = useState<UserAccount>(() => {
     try {
       const saved = localStorage.getItem('tickedge_auth_session');
@@ -105,9 +105,9 @@ export default function App() {
       isLoggedIn: false,
       username: '',
       email: '',
-      balance: 10000.0,
+      balance: 0.0,
       currency: 'USD',
-      isDemo: true,
+      isDemo: false,
     };
   });
 

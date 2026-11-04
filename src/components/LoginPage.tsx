@@ -42,7 +42,7 @@ interface LoginPageProps {
   onAuthorizeDerivToken?: (token: string) => void;
 }
 
-type LoginMethod = 'oauth' | 'token' | 'account' | 'demo';
+type LoginMethod = 'oauth' | 'token' | 'account';
 
 export const LoginPage: React.FC<LoginPageProps> = ({
   onLoginSuccess,
@@ -91,8 +91,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   });
   const [password, setPassword] = useState<string>('');
   const [showPassword, setShowPassword] = useState(false);
-  const [accountMode, setAccountMode] = useState<'demo' | 'real'>('demo');
-  const [demoBalance, setDemoBalance] = useState<number>(10000);
   const [rememberMe, setRememberMe] = useState<boolean>(true);
 
   // Feedback & redirecting states
@@ -199,26 +197,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setTimeout(() => {
         onLoginSuccess({
           username: username.trim(),
-          email: `${username.trim().toLowerCase()}@tickedge.io`,
-          isDemo: accountMode === 'demo',
-          balance: accountMode === 'demo' ? demoBalance : 5000,
+          email: `${username.trim().toLowerCase()}@deriv.com`,
+          isDemo: username.trim().toUpperCase().startsWith('VR'),
+          balance: 0,
         });
       }, 500);
     }, 600);
-  };
-
-  // Handle Instant Demo Bypass
-  const handleInstantDemo = (chosenBalance: number = 10000) => {
-    setIsSubmitting(true);
-    setSuccessMsg('Launching Instant Demo Sandbox...');
-    setTimeout(() => {
-      onLoginSuccess({
-        username: 'DemoTrader',
-        email: 'demo@hopelens.io',
-        isDemo: true,
-        balance: chosenBalance,
-      });
-    }, 400);
   };
 
   const isLight = theme === 'light';
@@ -342,7 +326,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
               {/* Functional Method Switcher (Segmented Control) */}
               <div
-                className={`grid grid-cols-4 p-1 rounded-xl border mb-6 text-xs font-bold ${
+                className={`grid grid-cols-3 p-1 rounded-xl border mb-6 text-xs font-bold ${
                   isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#090d16] border-slate-800'
                 }`}
               >
@@ -394,23 +378,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Trader Login
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveMethod('demo');
-                    setErrorMsg('');
-                  }}
-                  className={`py-2 px-1 rounded-lg transition-all text-center whitespace-nowrap cursor-pointer ${
-                    activeMethod === 'demo'
-                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-md'
-                      : isLight
-                      ? 'text-slate-600 hover:text-slate-900'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Instant Demo
+                  Account Login
                 </button>
               </div>
 
@@ -717,66 +685,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     </div>
                   </div>
 
-                  {/* Account Mode Choice */}
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setAccountMode('demo')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        accountMode === 'demo'
-                          ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 font-bold ring-1 ring-emerald-500'
-                          : isLight
-                          ? 'bg-slate-50 border-slate-200 text-slate-600'
-                          : 'bg-[#090d16] border-slate-800 text-slate-400'
-                      }`}
-                    >
-                      <span className="text-xs block">Virtual Demo</span>
-                      <span className="text-[10px] font-mono opacity-80">$10,000 Sandbox</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setAccountMode('real')}
-                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                        accountMode === 'real'
-                          ? 'bg-rose-500/10 border-rose-500 text-rose-400 font-bold ring-1 ring-rose-500'
-                          : isLight
-                          ? 'bg-slate-50 border-slate-200 text-slate-600'
-                          : 'bg-[#090d16] border-slate-800 text-slate-400'
-                      }`}
-                    >
-                      <span className="text-xs block">Real Account</span>
-                      <span className="text-[10px] font-mono opacity-80">Live Trading</span>
-                    </button>
-                  </div>
-
-                  {/* Demo Balance Presets */}
-                  {accountMode === 'demo' && (
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-semibold text-slate-500">
-                        Starting Demo Balance
-                      </label>
-                      <div className="grid grid-cols-4 gap-2 font-mono text-xs">
-                        {[1000, 5000, 10000, 25000].map((amt) => (
-                          <button
-                            key={amt}
-                            type="button"
-                            onClick={() => setDemoBalance(amt)}
-                            className={`py-1.5 rounded-lg border text-center transition-colors cursor-pointer ${
-                              demoBalance === amt
-                                ? 'bg-[#00e599] text-black font-bold border-[#00e599]'
-                                : isLight
-                                ? 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-                                : 'bg-slate-900 hover:bg-slate-800 border-slate-800 text-slate-300'
-                            }`}
-                          >
-                            ${amt / 1000}k
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
                   <div className="flex items-center justify-between text-xs pt-1">
                     <label className="flex items-center gap-2 cursor-pointer select-none text-slate-600 dark:text-slate-400">
                       <input
@@ -805,53 +713,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     <ArrowRight className="w-4 h-4" />
                   </button>
                 </form>
-              )}
-
-              {/* METHOD 4: INSTANT DEMO (1-CLICK ENTRY) */}
-              {activeMethod === 'demo' && (
-                <div className="space-y-4 animate-in fade-in">
-                  <div
-                    className={`p-5 rounded-2xl border flex flex-col gap-3 text-center ${
-                      isLight
-                        ? 'bg-gradient-to-b from-sky-50 to-white border-sky-200'
-                        : 'bg-gradient-to-b from-cyan-950/20 via-[#111827] to-[#090d16] border-cyan-800/40'
-                    }`}
-                  >
-                    <div className="w-12 h-12 rounded-2xl bg-[#00FFFF]/20 border border-[#00FFFF]/40 mx-auto flex items-center justify-center text-[#0066FF] dark:text-[#00FFFF]">
-                      <Zap className="w-6 h-6" />
-                    </div>
-
-                    <div>
-                      <h3 className="font-extrabold text-lg">Sign In as Demo Trader</h3>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-                        Sign in to the trading terminal with risk-free virtual capital to analyze tick clusters and test automated bot strategies.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 max-w-xs mx-auto w-full pt-2">
-                      {[5000, 10000, 25000].map((amt) => (
-                        <button
-                          key={amt}
-                          type="button"
-                          onClick={() => handleInstantDemo(amt)}
-                          className="py-2 px-3 rounded-xl border text-xs font-mono font-bold bg-[#00FFFF] text-slate-950 border-[#00FFFF] hover:opacity-90 shadow-sm transition-all cursor-pointer active:scale-95"
-                        >
-                          ${amt.toLocaleString()}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleInstantDemo(10000)}
-                      disabled={isSubmitting}
-                      className="mt-2 w-full py-3.5 rounded-xl font-black text-sm text-slate-950 bg-[#00FFFF] hover:bg-[#00FFFF]/90 shadow-[0_0_25px_rgba(0,255,255,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-[0.99]"
-                    >
-                      <span>Sign In as Demo Trader ($10,000 USD)</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
               )}
             </div>
           </div>

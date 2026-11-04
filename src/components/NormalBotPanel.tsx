@@ -453,11 +453,34 @@ export const NormalBotPanel: React.FC<NormalBotPanelProps> = ({
               onChange={(e) => onUpdateConfig({ marketId: e.target.value })}
               className="w-full appearance-none px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 font-medium cursor-pointer"
             >
-              {SYNTHETIC_MARKETS.map((m) => (
-                <option key={m.id} value={m.id} className="bg-white text-neutral-900">
-                  {m.symbol}
-                </option>
-              ))}
+              <optgroup label="Plain Volatility Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'volatility').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Volatility (1s) Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'volatility-1s').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Jump Indices (J10 – J100)" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'jump').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Step Indices (STEP 100 – STEP 500)" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'step').map((m) => (
+                  <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
+                    {m.symbol} — {m.name}
+                  </option>
+                ))}
+              </optgroup>
             </select>
             <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>

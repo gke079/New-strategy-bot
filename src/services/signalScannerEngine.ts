@@ -288,6 +288,7 @@ export class MultiMarketSignalScanner {
   private highLowWindows: Record<string, number> = { ...HIGH_LOW_TICK_DEFAULT_WINDOWS };
 
   private endpoints = [
+    'wss://api.derivws.com/trading/v1/options/ws/public',
     'wss://ws.derivws.com/websockets/v3',
     'wss://blue.derivws.com/websockets/v3',
     'wss://green.derivws.com/websockets/v3',
@@ -314,120 +315,7 @@ export class MultiMarketSignalScanner {
     const current5mBucketEpoch = Math.floor(nowSec / 300) * 300;
 
     SIGNAL_MARKETS.forEach((market, idx) => {
-      // Stagger market scanning desynchronized across 300s (5m timeframe): spaced 25s apart
       const scanPhaseOffsetSec = (idx * 25) % 300;
-      const windowOnlyUp = this.getMarketWindow('only_up_down', market.id);
-      const windowHighLow = this.getMarketWindow('high_low_tick', market.id);
-      const currentBucketOnlyUp = Math.floor((nowSec + scanPhaseOffsetSec) / windowOnlyUp) * windowOnlyUp - scanPhaseOffsetSec;
-      const currentBucketHighLow = Math.floor((nowSec + scanPhaseOffsetSec) / windowHighLow) * windowHighLow - scanPhaseOffsetSec;
-
-      // Seed candlesticks tailored to market-specific Only Up / Only Down window (5m analysis)
-      const seededCandlesOnlyUp: Candle5m[] = [];
-      // Seed candlesticks tailored to market-specific High Low window (5m analysis)
-      const seededCandlesHighLow: Candle5m[] = [];
-      const seededCandles: Candle2m[] = [];
-      const seededCandles5m: Candle5m[] = [];
-      const allSeededQuotes: number[] = [];
-      const allSeededDigits: number[] = [];
-      let price5m = market.basePrice;
-
-      // Seed 30 market-calibrated High Low candlesticks (for Wilder's RSI-14 + wicks)
-      for (let c5 = 29; c5 >= 0; c5--) {
-        const bucketHL = currentBucketHighLow - c5 * windowHighLow;
-        const bucket5m = current5mBucketEpoch - c5 * 300;
-        const steps5m =
-          c5 === 0 ? Math.max(18, Math.min(90, nowSec - currentBucketHighLow)) : 60;
-        const waveBias = Math.sin(idx * 1.15 + c5 * 0.32) * 0.08;
-        const open5m = Number(price5m.toFixed(market.decimals));
-        let high5m = open5m;
-        let low5m = open5m;
-        let close5m = open5m;
-
-        for (let s = 0; s < steps5m; s++) {
-          const swingPhase = s < steps5m * 0.35 ? -0.14 : s < steps5m * 0.7 ? 0.14 : waveBias;
-          const delta = (Math.random() - 0.5 + swingPhase) * market.volatility * price5m;
-          price5m = Math.max(1, price5m + delta);
-          const numericQuote = Number(price5m.toFixed(market.decimals));
-          high5m = Math.max(high5m, numericQuote);
-          low5m = Math.min(low5m, numericQuote);
-          close5m = numericQuote;
-        }
-
-        seededCandlesHighLow.push({
-          epoch: bucketHL,
-          open: open5m,
-          high: high5m,
-          low: low5m,
-          close: close5m,
-        });
-        seededCandles5m.push({
-          epoch: bucket5m,
-          open: open5m,
-          high: high5m,
-          low: low5m,
-          close: close5m,
-        });
-      }
-
-      let price = seededCandlesHighLow[seededCandlesHighLow.length - 1]?.open ?? market.basePrice;
-
-      for (let cIdx = 20; cIdx >= 0; cIdx--) {
-        const bucketEpochOU = currentBucketOnlyUp - cIdx * windowOnlyUp;
-        const bucketEpoch = currentBucketEpoch - cIdx * 120;
-        const stepsInCandle = cIdx === 0 ? Math.max(12, Math.min(60, nowSec - currentBucketOnlyUp)) : 45;
-        const driftBias = Math.sin(idx * 1.35 + cIdx * 0.16) * 0.11;
-        const candleOpen = Number(price.toFixed(market.decimals));
-        let candleHigh = candleOpen;
-        let candleLow = candleOpen;
-        let candleClose = candleOpen;
-
-        for (let s = 0; s < stepsInCandle; s++) {
-          const delta = (Math.random() - 0.5 + driftBias) * market.volatility * price;
-          price = Math.max(1, price + delta);
-          const formatted = price.toFixed(market.decimals);
-          const numericQuote = Number(formatted);
-          const d = parseInt(formatted.charAt(formatted.length - 1), 10) || 0;
-          candleHigh = Math.max(candleHigh, numericQuote);
-          candleLow = Math.min(candleLow, numericQuote);
-          candleClose = numericQuote;
-          allSeededQuotes.push(numericQuote);
-          allSeededDigits.push(d);
-        }
-
-        seededCandlesOnlyUp.push({
-          epoch: bucketEpochOU,
-          open: candleOpen,
-          high: candleHigh,
-          low: candleLow,
-          close: candleClose,
-        });
-        seededCandles.push({
-          epoch: bucketEpoch,
-          open: candleOpen,
-          high: candleHigh,
-          low: candleLow,
-          close: candleClose,
-        });
-      }
-
-      const seededDigits = allSeededDigits.slice(-100);
-      const seededPrices = allSeededQuotes.slice(-101);
-      const finalQuote = seededPrices[seededPrices.length - 1] ?? market.basePrice;
-
-      // Sync active high-low candle close/high/low with finalQuote
-      const lastHL = seededCandlesHighLow[seededCandlesHighLow.length - 1];
-      if (lastHL) {
-        lastHL.high = Math.max(lastHL.high, finalQuote);
-        lastHL.low = Math.min(lastHL.low, finalQuote);
-        lastHL.close = finalQuote;
-      }
-      const last5m = seededCandles5m[seededCandles5m.length - 1];
-      if (last5m) {
-        last5m.high = Math.max(last5m.high, finalQuote);
-        last5m.low = Math.min(last5m.low, finalQuote);
-        last5m.close = finalQuote;
-      }
-
       const parityPhaseOffsetSec = (idx * 9) % FULL_CYCLE_SEC;
       const overUnderPhaseOffsetSec = (idx * 13 + 7) % FULL_CYCLE_SEC;
       const matchPhaseOffsetSec = (idx * 11 + 19) % FULL_CYCLE_SEC;
@@ -435,14 +323,14 @@ export class MultiMarketSignalScanner {
 
       this.states.set(market.id, {
         market,
-        digits: seededDigits,
-        prices: seededPrices,
-        candles2m: seededCandles,
-        candles5m: seededCandles5m,
-        candlesOnlyUp: seededCandlesOnlyUp,
-        candlesHighLow: seededCandlesHighLow,
-        lastPrice: finalQuote,
-        lastQuote: finalQuote.toFixed(market.decimals),
+        digits: [],
+        prices: [],
+        candles2m: [],
+        candles5m: [],
+        candlesOnlyUp: [],
+        candlesHighLow: [],
+        lastPrice: 0,
+        lastQuote: '--',
         isLiveWs: false,
         lastWsEpoch: 0,
         scanPhaseOffsetSec,
@@ -826,23 +714,12 @@ export class MultiMarketSignalScanner {
   private startHeartbeat() {
     this.tickTimer = setInterval(() => {
       if (this.isDestroyed) return;
-      const now = Date.now();
-      const nowSec = Math.floor(now / 1000);
-      this.states.forEach((st) => {
-        if (!st.isLiveWs || now - st.lastWsEpoch > 3500) {
-          const delta = (Math.random() - 0.5) * st.market.volatility * st.lastPrice;
-          const nextPrice = Math.max(1, st.lastPrice + delta);
-          const { formatted, digit } = this.extractLastDigit(nextPrice, st.market.decimals);
-          const numericQuote = Number(formatted);
-          st.lastPrice = nextPrice;
-          st.lastQuote = formatted;
-          st.digits = [...st.digits.slice(-99), digit];
-          st.prices = [...st.prices.slice(-100), numericQuote];
-          this.upsertCandleFromTick(st, numericQuote, nowSec);
-        }
-      });
-      this.notify();
-    }, 1000);
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        try {
+          this.ws.send(JSON.stringify({ ping: 1 }));
+        } catch {}
+      }
+    }, 15000);
   }
 
   /**

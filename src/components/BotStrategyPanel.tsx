@@ -279,15 +279,15 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Step Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
-                {SYNTHETIC_MARKETS.filter((m) => m.category === 'step').map((m) => (
+              <optgroup label="Jump Indices (J10 – J100)" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'jump').map((m) => (
                   <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
                     {m.symbol} — {m.name}
                   </option>
                 ))}
               </optgroup>
-              <optgroup label="Jump Indices" className="bg-neutral-100 text-neutral-800 font-semibold">
-                {SYNTHETIC_MARKETS.filter((m) => m.category === 'jump').map((m) => (
+              <optgroup label="Step Indices (STEP 100 – STEP 500)" className="bg-neutral-100 text-neutral-800 font-semibold">
+                {SYNTHETIC_MARKETS.filter((m) => m.category === 'step').map((m) => (
                   <option key={m.id} value={m.id} className="bg-white text-neutral-900 font-normal">
                     {m.symbol} — {m.name}
                   </option>

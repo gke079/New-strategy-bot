@@ -45,7 +45,9 @@ async function startServer() {
         } catch {}
       }
 
-      const derivUrl = `wss://ws.derivws.com/websockets/v3?app_id=${appId}`;
+      const derivUrl = appId
+        ? `wss://api.derivws.com/trading/v1/options/ws/public?app_id=${appId}`
+        : `wss://api.derivws.com/trading/v1/options/ws/public`;
       derivWs = new WebSocket(derivUrl);
 
       derivWs.on('open', () => {
@@ -53,6 +55,7 @@ async function startServer() {
         if (token) {
           derivWs?.send(JSON.stringify({ authorize: token }));
         }
+        // 1. Request historical ticks and subscribe to live ticks
         derivWs?.send(
           JSON.stringify({
             ticks_history: symbol,
@@ -64,6 +67,17 @@ async function startServer() {
         derivWs?.send(
           JSON.stringify({
             ticks: symbol,
+            subscribe: 1,
+          })
+        );
+        // 2. Request historical OHLC candles and subscribe to live candle updates
+        derivWs?.send(
+          JSON.stringify({
+            ticks_history: symbol,
+            count: 50,
+            end: 'latest',
+            style: 'candles',
+            granularity: 60,
             subscribe: 1,
           })
         );
@@ -90,9 +104,26 @@ async function startServer() {
         const msg = JSON.parse(message.toString());
         if (msg.action === 'subscribe') {
           connectToDeriv(msg.symbol || 'R_75', msg.appId || '1089', msg.token);
+        } else if (msg.action === 'candles' || msg.action === 'ohlc') {
+          if (derivWs && derivWs.readyState === WebSocket.OPEN) {
+            derivWs.send(
+              JSON.stringify({
+                ticks_history: msg.symbol || 'R_75',
+                count: msg.count || 50,
+                end: 'latest',
+                style: 'candles',
+                granularity: msg.granularity || 60,
+                subscribe: msg.subscribe ? 1 : undefined,
+              })
+            );
+          }
         } else if (msg.action === 'ping') {
           if (derivWs && derivWs.readyState === WebSocket.OPEN) {
             derivWs.send(JSON.stringify({ ping: 1 }));
+          }
+        } else if (msg.raw_req) {
+          if (derivWs && derivWs.readyState === WebSocket.OPEN) {
+            derivWs.send(JSON.stringify(msg.raw_req));
           }
         }
       } catch {}
