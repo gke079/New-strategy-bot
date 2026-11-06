@@ -278,6 +278,9 @@ export function isContinuousDirectionalContract(type: TradeContractType): boolea
 
 export type SignalEntryTrigger =
   | 'immediate'
+  | 's1_blue_digit_confirm'
+  | 's2_two_opposite_confirm'
+  | 's3_red_then_opposite_confirm'
   | 'even_after_2_odd_confirm'
   | 'odd_after_2_even_confirm'
   | 'under_after_3_opp_confirm'
@@ -307,6 +310,7 @@ export interface NormalBotConfig {
   active: boolean;
   botSpeed?: 'normal' | 'fast'; // 'fast' = trades every tick; 'normal' = skips 1 tick between entry and exit
   signalEntryTrigger?: SignalEntryTrigger;
+  entryTargetDigit?: number;
 }
 
 export interface BotMetrics {

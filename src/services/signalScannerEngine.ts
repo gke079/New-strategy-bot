@@ -122,6 +122,19 @@ export interface MarketSignalSnapshot {
   is10sEntryActive?: boolean;
   recentMacdHistograms?: (number | null)[];
   candleSecondsLeft?: number;
+  // Even / Odd S1, S2, S3 Strategy fields
+  evenOddStrategyId?: 'S1' | 'S2' | 'S3';
+  evenOddStrategyLabel?: string;
+  evenOddEntryRuleText?: string;
+  evenOddEntryDigit?: number;
+  greenBarDigit?: number;
+  greenBarPct?: number;
+  blueBarDigit?: number;
+  blueBarPct?: number;
+  redBarDigit?: number;
+  redBarPct?: number;
+  evenDigitsGe10Count?: number;
+  oddDigitsGe10Count?: number;
 }
 
 export const SIGNAL_MARKET_IDS = [
@@ -1195,117 +1208,256 @@ export class MultiMarketSignalScanner {
    * Strictly isolated Even / Odd signal snapshot builder.
    * Never computes or exposes Over/Under or Digit Match contracts.
    */
-  private buildEvenOddSnapshot(st: InternalMarketState, nowSec: number): MarketSignalSnapshot {
-    const parityDigits = st.digits.slice(-100);
-    const parityTotal = Math.max(1, parityDigits.length);
+  /**
+   * Strictly isolated Even / Odd signal snapshot builder implementing Strategies S1, S2, and S3:
+   *
+   * Market Movers:
+   * - Green bar = Most appearing digit (Rank 1)
+   * - Blue bar  = Second most appearing digit (Rank 2)
+   * - Red bar   = Least appearing digit (Rank 10)
+   *
+   * S1. Mover Divergence:
+   *     Green & Red on same market (Even or Odd), Blue on opposite market.
+   *     Green bar percentage < 12%.
+   *     Favored market: same as Green & Red.
+   *     Entry digit: Blue bar (second most appearing digit).
+   *
+   * S2. Distribution Dominancy:
+   *     All 3 Market Movers (Green, Blue, Red) on same market.
+   *     Dominancy: Favored market has more digits >= 10%.
+   *     Entry: 2 consecutive digits of opposite market.
+   *
+   * S3. Split Movers:
+   *     Green & Blue on same market, Red on opposite market.
+   *     Dominancy: Favored market has more digits >= 10%.
+   *     Entry: Red bar digit appears followed by another opposite digit.
+   */
+  private buildEvenOddSnapshot(
+    st: InternalMarketState,
+    nowSec: number,
+    strategyFilter: 'all' | 'S1' | 'S2' | 'S3' = 'all'
+  ): MarketSignalSnapshot {
+    const parityDigits = st.digits.length >= 10 ? st.digits.slice(-100) : [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    const totalDigits = Math.max(1, parityDigits.length);
+
+    // Compute frequency count for 0..9 and even/odd counts
+    const counts = Array(10).fill(0);
     let evenCount = 0;
     for (const d of parityDigits) {
+      if (d >= 0 && d <= 9) counts[d]++;
       if (d % 2 === 0) evenCount++;
     }
-    const evenPct = Math.round((evenCount / parityTotal) * 100);
+    const evenPct = Math.round((evenCount / totalDigits) * 100);
     const oddPct = 100 - evenPct;
 
-    const recentParity = parityDigits.slice(-30);
-    const olderParity = parityDigits.slice(0, Math.max(1, parityDigits.length - 30));
-    const recentEvenPct =
-      (recentParity.filter((d) => d % 2 === 0).length / Math.max(1, recentParity.length)) * 100;
-    const olderEvenPct =
-      (olderParity.filter((d) => d % 2 === 0).length / Math.max(1, olderParity.length)) * 100;
-    const evenMomentumDelta = Math.round(recentEvenPct - olderEvenPct);
-    const oddMomentumDelta = -evenMomentumDelta;
+    const pcts = counts.map((c) => Number(((c / totalDigits) * 100).toFixed(1)));
 
-    const { cycleId, inScanPhase, scanSecondsLeft } = this.getCycleTiming(
-      nowSec,
-      st.parityPhaseOffsetSec
-    );
+    // Sort descending by count, stable tie-breaker by digit number
+    const sortedDigits = counts
+      .map((count, digit) => ({ digit, count, pct: pcts[digit] }))
+      .sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.digit - b.digit;
+      });
 
-    const leadingParity: 'EVEN' | 'ODD' = evenPct >= oddPct ? 'EVEN' : 'ODD';
-    let signalLabel: 'EVEN' | 'ODD' = leadingParity;
-    let signalTone: MarketSignalSnapshot['signalTone'] =
-      leadingParity === 'EVEN' ? 'emerald' : 'fuchsia';
-    let contractType: 'EVEN' | 'ODD' = leadingParity;
-    let signalEntryTrigger: SignalEntryTrigger =
-      leadingParity === 'EVEN' ? 'even_after_2_odd_confirm' : 'odd_after_2_even_confirm';
-    let entryConfirmedNow = false;
-    let entryConfidencePct = Math.max(evenPct, oddPct);
-    let edgeDeltaPct = Math.max(0, entryConfidencePct - 50);
-    let distributionSubtext = `${evenPct}% even · ${oddPct}% odd`;
-    let patternSummary = '';
-    let hasStrongEdge = false;
-    let isScanning = inScanPhase;
-    let scanStatusNote = `${parityDigits.length} ticks · scanning Even / Odd`;
+    const greenBar = sortedDigits[0]; // Most appearing digit
+    const blueBar = sortedDigits[1]; // Second most appearing digit
+    const redBar = sortedDigits[sortedDigits.length - 1]; // Least appearing digit
 
-    if (inScanPhase) {
-      isScanning = true;
-      scanStatusNote =
-        evenPct === oddPct
-          ? '50% / 50% Equal · Scanning market'
-          : `Even ${evenPct}% · Odd ${oddPct}% · Scanning`;
-    } else if (evenPct === oddPct) {
-      st.lockedParity = undefined;
-      isScanning = true;
-      scanStatusNote = '50% / 50% Equal · No trade, scan again';
-    } else {
-      let pickedSide: 'EVEN' | 'ODD' | null = null;
-      let pickedPct = 52;
-      let pickedMom = 1;
+    const greenDigit = greenBar.digit;
+    const greenPct = greenBar.pct;
+    const isGreenEven = greenDigit % 2 === 0;
 
-      if (evenPct >= 52 && evenMomentumDelta > 0) {
-        pickedSide = 'EVEN';
-        pickedPct = evenPct;
-        pickedMom = evenMomentumDelta;
-      } else if (oddPct >= 52 && oddMomentumDelta > 0) {
-        pickedSide = 'ODD';
-        pickedPct = oddPct;
-        pickedMom = oddMomentumDelta;
-      } else if (st.lockedParity && st.lockedParity.cycleId === cycleId) {
-        const currentSidePct = st.lockedParity.contractType === 'EVEN' ? evenPct : oddPct;
-        if (currentSidePct >= 51) {
-          pickedSide = st.lockedParity.contractType;
-          pickedPct = Math.max(52, currentSidePct);
-          pickedMom = Math.max(1, st.lockedParity.lockedMomentum);
-        }
-      }
+    const blueDigit = blueBar.digit;
+    const bluePct = blueBar.pct;
+    const isBlueEven = blueDigit % 2 === 0;
 
-      if (pickedSide) {
-        st.lockedParity = {
-          cycleId,
-          contractType: pickedSide,
-          lockedPct: pickedPct,
-          lockedMomentum: pickedMom,
-        };
-        const confirmCheck = this.evaluateParityConfirmation(st.digits, pickedSide);
-        signalLabel = pickedSide;
-        signalTone = pickedSide === 'EVEN' ? 'emerald' : 'fuchsia';
-        contractType = pickedSide;
-        signalEntryTrigger =
-          pickedSide === 'EVEN' ? 'even_after_2_odd_confirm' : 'odd_after_2_even_confirm';
-        entryConfirmedNow = confirmCheck.confirmedNow;
-        entryConfidencePct = pickedSide === 'EVEN' ? Math.max(52, evenPct) : Math.max(52, oddPct);
-        edgeDeltaPct = entryConfidencePct - 50;
-        hasStrongEdge = true;
-        isScanning = false;
-        distributionSubtext =
-          pickedSide === 'EVEN'
-            ? `${evenPct}% even · ${oddPct}% odd · Momentum ▲ +${Math.max(1, evenMomentumDelta)}%`
-            : `${oddPct}% odd · ${evenPct}% even · Momentum ▲ +${Math.max(1, oddMomentumDelta)}%`;
-        patternSummary = `${confirmCheck.statusText} · Continuous`;
-      } else {
-        isScanning = true;
-        const leadSide = evenPct > oddPct ? `Even ${evenPct}%` : `Odd ${oddPct}%`;
-        const leadMom = evenPct > oddPct ? evenMomentumDelta : oddMomentumDelta;
-        scanStatusNote =
-          Math.max(evenPct, oddPct) < 52
-            ? `${leadSide} (<52%) · No trade, scan again`
-            : `${leadSide} (mom ${leadMom >= 0 ? '+' : ''}${leadMom}%) · Awaiting rising momentum`;
+    const redDigit = redBar.digit;
+    const redPct = redBar.pct;
+    const isRedEven = redDigit % 2 === 0;
+
+    // Dominancy: how many even or odd digits have >= 10%
+    let evenDigitsGe10Count = 0;
+    let oddDigitsGe10Count = 0;
+    for (let d = 0; d <= 9; d++) {
+      if (pcts[d] >= 10) {
+        if (d % 2 === 0) evenDigitsGe10Count++;
+        else oddDigitsGe10Count++;
       }
     }
+
+    interface StrategyEvaluation {
+      strategyId: 'S1' | 'S2' | 'S3';
+      favoredSide: 'EVEN' | 'ODD';
+      strategyLabel: string;
+      entryTrigger: SignalEntryTrigger;
+      entryRuleText: string;
+      entryTargetDigit?: number;
+      entryConfirmedNow: boolean;
+      confidencePct: number;
+    }
+
+    const matchedStrategies: StrategyEvaluation[] = [];
+
+    const lastDigit = parityDigits[parityDigits.length - 1] ?? 0;
+    const prevDigit = parityDigits[parityDigits.length - 2] ?? 0;
+
+    // -------------------------------------------------------------------------
+    // S1: Green & Red on same market, Blue on opposite market. Green bar < 12%.
+    // Entry digit: Blue bar (second most appearing digit).
+    // -------------------------------------------------------------------------
+    if (isGreenEven && isRedEven && !isBlueEven && greenPct < 12) {
+      matchedStrategies.push({
+        strategyId: 'S1',
+        favoredSide: 'EVEN',
+        strategyLabel: 'S1 · Mover Divergence',
+        entryTrigger: 's1_blue_digit_confirm',
+        entryTargetDigit: blueDigit,
+        entryRuleText: `Entry Digit: Blue Bar (${blueDigit})`,
+        entryConfirmedNow: lastDigit === blueDigit,
+        confidencePct: Math.max(54, evenPct),
+      });
+    }
+    if (!isGreenEven && !isRedEven && isBlueEven && greenPct < 12) {
+      matchedStrategies.push({
+        strategyId: 'S1',
+        favoredSide: 'ODD',
+        strategyLabel: 'S1 · Mover Divergence',
+        entryTrigger: 's1_blue_digit_confirm',
+        entryTargetDigit: blueDigit,
+        entryRuleText: `Entry Digit: Blue Bar (${blueDigit})`,
+        entryConfirmedNow: lastDigit === blueDigit,
+        confidencePct: Math.max(54, oddPct),
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // S2: All 3 movers on same market. Favored market has more digits >= 10%.
+    // Entry: 2 consecutive opposite market digits.
+    // -------------------------------------------------------------------------
+    if (isGreenEven && isBlueEven && isRedEven && evenDigitsGe10Count > oddDigitsGe10Count) {
+      const is2Opp = parityDigits.length >= 2 && lastDigit % 2 !== 0 && prevDigit % 2 !== 0;
+      matchedStrategies.push({
+        strategyId: 'S2',
+        favoredSide: 'EVEN',
+        strategyLabel: 'S2 · Distribution Dominancy',
+        entryTrigger: 's2_two_opposite_confirm',
+        entryTargetDigit: undefined,
+        entryRuleText: 'Entry: 2 Consecutive Odd Digits',
+        entryConfirmedNow: is2Opp,
+        confidencePct: Math.max(56, evenPct),
+      });
+    }
+    if (!isGreenEven && !isBlueEven && !isRedEven && oddDigitsGe10Count > evenDigitsGe10Count) {
+      const is2Opp = parityDigits.length >= 2 && lastDigit % 2 === 0 && prevDigit % 2 === 0;
+      matchedStrategies.push({
+        strategyId: 'S2',
+        favoredSide: 'ODD',
+        strategyLabel: 'S2 · Distribution Dominancy',
+        entryTrigger: 's2_two_opposite_confirm',
+        entryTargetDigit: undefined,
+        entryRuleText: 'Entry: 2 Consecutive Even Digits',
+        entryConfirmedNow: is2Opp,
+        confidencePct: Math.max(56, oddPct),
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // S3: Green & Blue on same market, Red on opposite market. Favored market has more digits >= 10%.
+    // Entry: Red bar digit appears followed by another opposite digit.
+    // -------------------------------------------------------------------------
+    if (isGreenEven && isBlueEven && !isRedEven && evenDigitsGe10Count > oddDigitsGe10Count) {
+      const isS3Entry = parityDigits.length >= 2 && prevDigit === redDigit && lastDigit % 2 !== 0;
+      matchedStrategies.push({
+        strategyId: 'S3',
+        favoredSide: 'EVEN',
+        strategyLabel: 'S3 · Split Movers',
+        entryTrigger: 's3_red_then_opposite_confirm',
+        entryTargetDigit: redDigit,
+        entryRuleText: `Entry: Red Bar (${redDigit}) → Next Odd Digit`,
+        entryConfirmedNow: isS3Entry,
+        confidencePct: Math.max(58, evenPct),
+      });
+    }
+    if (!isGreenEven && !isBlueEven && isRedEven && oddDigitsGe10Count > evenDigitsGe10Count) {
+      const isS3Entry = parityDigits.length >= 2 && prevDigit === redDigit && lastDigit % 2 === 0;
+      matchedStrategies.push({
+        strategyId: 'S3',
+        favoredSide: 'ODD',
+        strategyLabel: 'S3 · Split Movers',
+        entryTrigger: 's3_red_then_opposite_confirm',
+        entryTargetDigit: redDigit,
+        entryRuleText: `Entry: Red Bar (${redDigit}) → Next Even Digit`,
+        entryConfirmedNow: isS3Entry,
+        confidencePct: Math.max(58, oddPct),
+      });
+    }
+
+    const { scanSecondsLeft } = this.getCycleTiming(nowSec, st.parityPhaseOffsetSec);
+
+    const activeMatches =
+      strategyFilter === 'all'
+        ? matchedStrategies
+        : matchedStrategies.filter((s) => s.strategyId === strategyFilter);
+
+    const hasMatch = activeMatches.length > 0;
+    const match = activeMatches[0];
+
+    const isScanning = !hasMatch;
+
+    let scanStatusNote = '';
+    if (hasMatch) {
+      scanStatusNote = `${match.strategyLabel} Active (${match.favoredSide}) · ${match.entryRuleText}`;
+    } else if (strategyFilter === 'S1') {
+      if (isGreenEven === isRedEven && isGreenEven !== isBlueEven) {
+        scanStatusNote =
+          greenPct >= 12
+            ? `S1 Mover positions met (${isGreenEven ? 'Even' : 'Odd'}) · Awaiting Green <12% (current ${greenPct}%)`
+            : `S1 setup scanning...`;
+      } else {
+        scanStatusNote = `Awaiting S1 Movers: Green & Red same, Blue opp (G:${isGreenEven ? 'E' : 'O'}, B:${isBlueEven ? 'E' : 'O'}, R:${isRedEven ? 'E' : 'O'})`;
+      }
+    } else if (strategyFilter === 'S2') {
+      if (isGreenEven === isBlueEven && isBlueEven === isRedEven) {
+        const side = isGreenEven ? 'Even' : 'Odd';
+        scanStatusNote = `S2 Movers all on ${side} · Awaiting ${side} dominancy (≥10%: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count})`;
+      } else {
+        scanStatusNote = `Awaiting S2 Movers: All 3 on same market (G:${isGreenEven ? 'E' : 'O'}, B:${isBlueEven ? 'E' : 'O'}, R:${isRedEven ? 'E' : 'O'})`;
+      }
+    } else if (strategyFilter === 'S3') {
+      if (isGreenEven === isBlueEven && isGreenEven !== isRedEven) {
+        const side = isGreenEven ? 'Even' : 'Odd';
+        scanStatusNote = `S3 Movers on ${side} (Red opp) · Awaiting ${side} dominancy (≥10%: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count})`;
+      } else {
+        scanStatusNote = `Awaiting S3 Movers: Green+Blue same, Red opp (G:${isGreenEven ? 'E' : 'O'}, B:${isBlueEven ? 'E' : 'O'}, R:${isRedEven ? 'E' : 'O'})`;
+      }
+    } else {
+      scanStatusNote = `Scanning S1, S2, S3 setups · Movers: G:${greenDigit}(${isGreenEven ? 'E' : 'O'} ${greenPct}%), B:${blueDigit}(${isBlueEven ? 'E' : 'O'}), R:${redDigit}(${isRedEven ? 'E' : 'O'}) · ≥10%: E(${evenDigitsGe10Count}) O(${oddDigitsGe10Count})`;
+    }
+
+    const favoredSide: 'EVEN' | 'ODD' = match ? match.favoredSide : (evenPct >= oddPct ? 'EVEN' : 'ODD');
+    const signalLabel = match ? `${match.favoredSide} · ${match.strategyId}` : favoredSide;
+    const signalTone: MarketSignalSnapshot['signalTone'] =
+      favoredSide === 'EVEN' ? 'emerald' : 'fuchsia';
+    const contractType = favoredSide;
+    const signalEntryTrigger: SignalEntryTrigger = match
+      ? match.entryTrigger
+      : 's2_two_opposite_confirm';
+    const prediction = match?.entryTargetDigit ?? 0;
+    const entryConfirmedNow = match ? match.entryConfirmedNow : false;
+    const entryConfidencePct = match ? match.confidencePct : Math.max(evenPct, oddPct);
+    const edgeDeltaPct = Math.max(0, entryConfidencePct - 50);
+
+    const distributionSubtext = `Movers: 🟢${greenDigit}(${isGreenEven ? 'E' : 'O'} ${greenPct}%) 🔵${blueDigit}(${isBlueEven ? 'E' : 'O'} ${bluePct}%) 🔴${redDigit}(${isRedEven ? 'E' : 'O'} ${redPct}%) · ≥10%: E(${evenDigitsGe10Count}) O(${oddDigitsGe10Count})`;
+    const patternSummary = match
+      ? `${match.strategyLabel} · ${match.entryRuleText}`
+      : `Movers: G:${greenDigit} B:${blueDigit} R:${redDigit} · Dominancy: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count}`;
 
     return {
       category: 'even_odd',
       market: st.market,
       isLiveWs: st.isLiveWs,
-      lastDigit: st.digits[st.digits.length - 1] ?? 0,
+      lastDigit,
       lastQuote: st.lastQuote,
       recentDigits: st.digits.slice(-12),
       windowTickCount: parityDigits.length,
@@ -1318,15 +1470,15 @@ export class MultiMarketSignalScanner {
       oddPct,
       overPct: 0,
       underPct: 0,
-      hotDigit: 0,
-      hotDigitPct: 0,
-      coldDigit: 0,
-      coldDigitPct: 0,
+      hotDigit: greenDigit,
+      hotDigitPct: greenPct,
+      coldDigit: redDigit,
+      coldDigitPct: redPct,
       barrierStats: [],
       signalLabel,
       signalTone,
       contractType,
-      prediction: 0,
+      prediction,
       signalEntryTrigger,
       entryConfirmedNow,
       entryConfidencePct,
@@ -1335,7 +1487,20 @@ export class MultiMarketSignalScanner {
       distributionSubtext,
       patternSummary,
       topBarriersSummary: '',
-      hasStrongEdge,
+      hasStrongEdge: hasMatch,
+      // Even/Odd S1, S2, S3 metadata
+      evenOddStrategyId: match?.strategyId,
+      evenOddStrategyLabel: match?.strategyLabel,
+      evenOddEntryRuleText: match?.entryRuleText,
+      evenOddEntryDigit: match?.entryTargetDigit,
+      greenBarDigit: greenDigit,
+      greenBarPct: greenPct,
+      blueBarDigit: blueDigit,
+      blueBarPct: bluePct,
+      redBarDigit: redDigit,
+      redBarPct: redPct,
+      evenDigitsGe10Count,
+      oddDigitsGe10Count,
     };
   }
 
@@ -2892,7 +3057,8 @@ export class MultiMarketSignalScanner {
   public getSnapshots(
     category: SignalCategory,
     overUnderBarrier: BarrierFilter = 'all',
-    ticks: number = 1
+    ticks: number = 1,
+    evenOddStrategyFilter: 'all' | 'S1' | 'S2' | 'S3' = 'all'
   ): MarketSignalSnapshot[] {
     const nowSec = Math.floor(Date.now() / 1000);
 
@@ -2902,7 +3068,7 @@ export class MultiMarketSignalScanner {
         return this.buildOnlyUpSnapshot(st, nowSec, ticks);
       }
       if (category === 'even_odd') {
-        return this.buildEvenOddSnapshot(st, nowSec);
+        return this.buildEvenOddSnapshot(st, nowSec, evenOddStrategyFilter);
       }
       if (category === 'over_under') {
         return this.buildOverUnderSnapshot(st, nowSec, overUnderBarrier);

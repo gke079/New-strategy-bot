@@ -360,6 +360,10 @@ export class NormalBotExecutor {
     const trigger = this.config.signalEntryTrigger;
     if (!trigger || trigger === 'immediate') return 'immediate' as const;
 
+    if (trigger === 's1_blue_digit_confirm') return trigger;
+    if (trigger === 's2_two_opposite_confirm') return trigger;
+    if (trigger === 's3_red_then_opposite_confirm') return trigger;
+
     if (this.config.contractType === 'EVEN' && trigger === 'even_after_2_odd_confirm') {
       return trigger;
     }
@@ -418,6 +422,34 @@ export class NormalBotExecutor {
     const lastIdx = allTicks.length - 1;
     if (lastIdx < 0) return false;
     const confirmDigit = allTicks[lastIdx].lastDigit;
+
+    if (trigger === 's1_blue_digit_confirm') {
+      const targetDigit =
+        this.config.entryTargetDigit ??
+        (typeof this.config.prediction === 'number' ? this.config.prediction : 0);
+      return confirmDigit === targetDigit;
+    }
+
+    if (trigger === 's2_two_opposite_confirm') {
+      if (allTicks.length < 2) return false;
+      const isEven = this.config.contractType === 'EVEN';
+      const d1 = allTicks[lastIdx].lastDigit;
+      const d2 = allTicks[lastIdx - 1].lastDigit;
+      return isEven ? d1 % 2 !== 0 && d2 % 2 !== 0 : d1 % 2 === 0 && d2 % 2 === 0;
+    }
+
+    if (trigger === 's3_red_then_opposite_confirm') {
+      if (allTicks.length < 2) return false;
+      const isEven = this.config.contractType === 'EVEN';
+      const redDigit =
+        this.config.entryTargetDigit ??
+        (typeof this.config.prediction === 'number' ? this.config.prediction : 0);
+      const prevDigit = allTicks[lastIdx - 1].lastDigit;
+      const currDigit = allTicks[lastIdx].lastDigit;
+      return isEven
+        ? prevDigit === redDigit && currDigit % 2 !== 0
+        : prevDigit === redDigit && currDigit % 2 === 0;
+    }
 
     if (trigger === 'even_after_2_odd_confirm') {
       if (allTicks.length < 3 || confirmDigit % 2 !== 0) return false;
@@ -526,6 +558,49 @@ export class NormalBotExecutor {
     if (trigger === 'immediate') return '';
 
     const lastIdx = ticks.length - 1;
+
+    if (trigger === 's1_blue_digit_confirm') {
+      const targetDigit =
+        this.config.entryTargetDigit ??
+        (typeof this.config.prediction === 'number' ? this.config.prediction : 0);
+      const lastDigit = ticks[lastIdx]?.lastDigit;
+      if (lastDigit === targetDigit) {
+        return `Entry armed! Blue bar digit (${targetDigit}) appeared · Executing now`;
+      }
+      return `Waiting for Blue bar digit (${targetDigit}) to appear (Last: ${lastDigit ?? '—'})`;
+    }
+
+    if (trigger === 's2_two_opposite_confirm') {
+      const isEven = this.config.contractType === 'EVEN';
+      const oppLabel = isEven ? 'Odd' : 'Even';
+      let oppStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        const isOpp = isEven ? ticks[i].lastDigit % 2 !== 0 : ticks[i].lastDigit % 2 === 0;
+        if (isOpp) oppStreak++;
+        else break;
+      }
+      if (oppStreak >= 2) {
+        return `Entry armed (${oppStreak}x ${oppLabel} digits) · Entering trade now`;
+      }
+      return `Waiting for 2 consecutive ${oppLabel} digits (${oppStreak}/2)`;
+    }
+
+    if (trigger === 's3_red_then_opposite_confirm') {
+      const isEven = this.config.contractType === 'EVEN';
+      const redDigit =
+        this.config.entryTargetDigit ??
+        (typeof this.config.prediction === 'number' ? this.config.prediction : 0);
+      const oppLabel = isEven ? 'Odd' : 'Even';
+      const currDigit = ticks[lastIdx]?.lastDigit;
+      const prevDigit = ticks[lastIdx - 1]?.lastDigit;
+      if (prevDigit === redDigit && (isEven ? currDigit % 2 !== 0 : currDigit % 2 === 0)) {
+        return `Entry armed! Red bar (${redDigit}) → ${currDigit} (${oppLabel}) · Entering trade now`;
+      }
+      if (currDigit === redDigit) {
+        return `Red bar digit (${redDigit}) appeared! Waiting for next ${oppLabel} digit to confirm`;
+      }
+      return `Waiting for Red bar digit (${redDigit}) followed by an ${oppLabel} digit`;
+    }
 
     if (trigger === 'even_after_2_odd_confirm') {
       let oddStreak = 0;

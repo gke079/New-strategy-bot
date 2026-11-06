@@ -16,21 +16,9 @@ import {
   formatTradingViewCountdown,
 } from '../services/signalScannerEngine';
 import { ChartsView } from './ChartsView';
-import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock, Play, CheckCircle2 } from 'lucide-react';
+import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock, Play, CheckCircle2, Bot, Activity, Zap } from 'lucide-react';
 import { NumericInput } from './NumericInput';
 
-import robotVol10Img from '../assets/images/robot_vol_10_1793085808144.jpg';
-import robotVol25Img from '../assets/images/robot_vol_25_1793085810352.jpg';
-import robotVol50Img from '../assets/images/robot_vol_50_1793085811825.jpg';
-import robotVol75Img from '../assets/images/robot_vol_75_1793085812944.jpg';
-import robotVol100Img from '../assets/images/robot_vol_100_1793085815060.jpg';
-import robotVol10_1sImg from '../assets/images/robot_vol_10_1s_1793085814444.jpg';
-import robotVol25_1sImg from '../assets/images/robot_vol_25_1s_1793085816360.jpg';
-import robotVol50_1sImg from '../assets/images/robot_vol_50_1s_1793085818156.jpg';
-import robotVol75_1sImg from '../assets/images/robot_vol_75_1s_1793085819432.jpg';
-import robotVol100_1sImg from '../assets/images/robot_vol_100_1s_1793085820025.jpg';
-import robotStep100Img from '../assets/images/robot_step_100_1793085821652.jpg';
-import robotJump50Img from '../assets/images/robot_jump_50_1793085821737.jpg';
 
 export interface SignalExecutionRequest {
   category: SignalCategory;
@@ -38,6 +26,8 @@ export interface SignalExecutionRequest {
   contractType: TradeContractType;
   prediction: number;
   signalEntryTrigger: SignalEntryTrigger;
+  entryTargetDigit?: number;
+  evenOddStrategyId?: 'S1' | 'S2' | 'S3';
   entryConfirmedNow: boolean;
   stake: number;
   ticks: number;
@@ -58,6 +48,8 @@ export interface ActiveSignalSession {
   marketName: string;
   contractType: TradeContractType;
   prediction: number;
+  entryTargetDigit?: number;
+  evenOddStrategyId?: 'S1' | 'S2' | 'S3';
   ticks?: number;
   signalLabel: string;
   signalTone: 'emerald' | 'fuchsia' | 'sky' | 'amber';
@@ -83,242 +75,14 @@ interface SignalsViewProps {
   theme?: 'dark' | 'light';
 }
 
-interface RobotBannerVisual {
-  imageSrc: string;
-  alt: string;
-  fallbackGradientClass: string;
-  eyeColor: string;
-  togglePanelClass: string;
-}
-
-const MARKET_ROBOT_VISUALS: Record<string, RobotBannerVisual> = {
-  R_10: {
-    imageSrc: robotVol10Img,
-    alt: 'Volatility 10 porcelain sentinel robot',
-    fallbackGradientClass: 'bg-gradient-to-br from-slate-500 via-teal-800/40 to-stone-300',
-    eyeColor: '#10b981',
-    togglePanelClass: 'bg-emerald-400/25 border-emerald-100/60',
-  },
-  R_25: {
-    imageSrc: robotVol25Img,
-    alt: 'Volatility 25 titanium sapphire-optic android',
-    fallbackGradientClass: 'bg-gradient-to-br from-slate-700 via-slate-500 to-slate-300',
-    eyeColor: '#3b82f6',
-    togglePanelClass: 'bg-sky-400/25 border-sky-100/60',
-  },
-  R_50: {
-    imageSrc: robotVol50Img,
-    alt: 'Volatility 50 bronze and obsidian clockwork automaton',
-    fallbackGradientClass: 'bg-gradient-to-br from-stone-600 via-amber-900/40 to-stone-300',
-    eyeColor: '#f59e0b',
-    togglePanelClass: 'bg-amber-400/25 border-amber-100/60',
-  },
-  R_75: {
-    imageSrc: robotVol75Img,
-    alt: 'Volatility 75 carbon-weave crimson-visor mech',
-    fallbackGradientClass: 'bg-gradient-to-br from-zinc-700 via-slate-600 to-zinc-400',
-    eyeColor: '#ef4444',
-    togglePanelClass: 'bg-slate-300/25 border-slate-100/60',
-  },
-  R_100: {
-    imageSrc: robotVol100Img,
-    alt: 'Volatility 100 ceramic and copper cyclops droid',
-    fallbackGradientClass: 'bg-gradient-to-br from-stone-500 via-orange-900/35 to-amber-100',
-    eyeColor: '#f43f5e',
-    togglePanelClass: 'bg-orange-300/25 border-orange-100/60',
-  },
-  '1HZ10V': {
-    imageSrc: robotVol10_1sImg,
-    alt: 'Volatility 10 (1s) aerodynamic scout robot',
-    fallbackGradientClass: 'bg-gradient-to-br from-teal-700/60 via-slate-400 to-slate-200',
-    eyeColor: '#34d399',
-    togglePanelClass: 'bg-teal-300/25 border-teal-100/60',
-  },
-  '1HZ25V': {
-    imageSrc: robotVol25_1sImg,
-    alt: 'Volatility 25 (1s) brushed aluminum twin-lens lab robot',
-    fallbackGradientClass: 'bg-gradient-to-br from-sky-800/50 via-slate-400 to-sky-100',
-    eyeColor: '#0284c7',
-    togglePanelClass: 'bg-sky-300/25 border-sky-100/60',
-  },
-  '1HZ50V': {
-    imageSrc: robotVol50_1sImg,
-    alt: 'Volatility 50 (1s) cobalt-blue geometric mecha',
-    fallbackGradientClass: 'bg-gradient-to-br from-blue-800/60 via-slate-500 to-slate-300',
-    eyeColor: '#38bdf8',
-    togglePanelClass: 'bg-blue-400/25 border-blue-100/60',
-  },
-  '1HZ75V': {
-    imageSrc: robotVol75_1sImg,
-    alt: 'Volatility 75 (1s) tactical olive-titanium ranger robot',
-    fallbackGradientClass: 'bg-gradient-to-br from-stone-600 via-emerald-950/35 to-stone-300',
-    eyeColor: '#eab308',
-    togglePanelClass: 'bg-lime-300/25 border-lime-100/60',
-  },
-  '1HZ100V': {
-    imageSrc: robotVol100_1sImg,
-    alt: 'Volatility 100 (1s) chrome and tungsten interceptor robot',
-    fallbackGradientClass: 'bg-gradient-to-br from-zinc-700 via-zinc-500 to-slate-300',
-    eyeColor: '#f97316',
-    togglePanelClass: 'bg-orange-400/25 border-orange-100/60',
-  },
-  stpRNG: {
-    imageSrc: robotStep100Img,
-    alt: 'Step Index architectural stepped platinum robot',
-    fallbackGradientClass: 'bg-gradient-to-br from-slate-400 via-slate-300 to-zinc-100',
-    eyeColor: '#06b6d4',
-    togglePanelClass: 'bg-cyan-400/25 border-cyan-100/60',
-  },
-  JD50: {
-    imageSrc: robotJump50Img,
-    alt: 'Jump 50 kinetic exo-frame robot',
-    fallbackGradientClass: 'bg-gradient-to-br from-zinc-400 via-stone-300 to-zinc-100',
-    eyeColor: '#fb923c',
-    togglePanelClass: 'bg-amber-300/25 border-amber-100/60',
-  },
-};
-
-const CyberScannerBanner: React.FC<{
-  marketId: string;
-  marketName: string;
-  modeLabel: string;
-  lastDigit: number;
-  candle2mDirection?: 'bullish' | 'bearish' | 'neutral';
-  candleWindowLabel?: string;
-  highLowTickReadout?: {
-    contractType: 'HIGH_TICK' | 'LOW_TICK';
-    targetTick: number;
-    rsi5m?: number;
-    windowLabel?: string;
-  };
-}> = ({
-  marketId,
-  marketName,
-  modeLabel,
-  lastDigit,
-  candle2mDirection,
-  candleWindowLabel,
-  highLowTickReadout,
-}) => {
-  const [imgFailed, setImgFailed] = useState(false);
-  const visual = MARKET_ROBOT_VISUALS[marketId] ?? MARKET_ROBOT_VISUALS.R_10;
-
-  return (
-    <div
-      className={`relative h-40 sm:h-44 w-full overflow-hidden select-none ${visual.fallbackGradientClass}`}
-    >
-      {!imgFailed ? (
-        <img
-          src={visual.imageSrc}
-          alt={visual.alt || `${marketName} signal robot`}
-          referrerPolicy="no-referrer"
-          loading="lazy"
-          onError={() => setImgFailed(true)}
-          className="absolute inset-0 w-full h-full object-cover object-[50%_18%] pointer-events-none transition-transform duration-300"
-        />
-      ) : (
-        <svg
-          viewBox="0 0 260 150"
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-          preserveAspectRatio="xMidYMax meet"
-          aria-hidden="true"
-        >
-          <path
-            d="M68 150 C78 128, 102 122, 130 122 C158 122, 182 128, 192 150 Z"
-            fill="#1e293b"
-          />
-          <path d="M112 104 L115 136 L145 136 L148 104 Z" fill="#0f172a" />
-          <rect x="92" y="54" width="8" height="24" rx="4" fill="#1e293b" />
-          <circle cx="95" cy="66" r="2.5" fill={visual.eyeColor} />
-          <rect x="160" y="54" width="8" height="24" rx="4" fill="#1e293b" />
-          <circle cx="165" cy="66" r="2.5" fill={visual.eyeColor} />
-          <path
-            d="M98 54 C98 24, 162 24, 162 54 C162 79, 150 104, 130 112 C110 104, 98 79, 98 54 Z"
-            fill="#e2e8f0"
-          />
-          <path d="M108 66 Q116 63 123 67 Q116 71 108 66 Z" fill="#0f172a" />
-          <circle cx="116" cy="66.8" r="2.5" fill={visual.eyeColor} />
-          <path d="M137 67 Q144 63 152 66 Q144 71 137 67 Z" fill="#0f172a" />
-          <circle cx="144" cy="66.8" r="2.5" fill={visual.eyeColor} />
-          <path d="M121 95 Q130 98 139 95" stroke="#475569" strokeWidth="1.4" fill="none" />
-        </svg>
-      )}
-
-      {/* Subtle bottom vignette so overlaid frosted controls remain crisp across all robot portraits */}
-      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-slate-950/25 to-transparent pointer-events-none" />
-
-      {/* Left Glassmorphic Toggle Module */}
-      <div
-        className={`absolute left-3.5 bottom-3.5 w-12 h-12 sm:w-13 sm:h-13 rounded-2xl backdrop-blur-xs border flex flex-col items-center justify-center gap-1.5 shadow-xs ${visual.togglePanelClass}`}
-      >
-        <div className="w-7 h-3 rounded-full bg-emerald-500/90 border border-emerald-950/35 flex items-center justify-start px-0.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-50" />
-        </div>
-        <div className="w-7 h-3 rounded-full bg-sky-500/90 border border-sky-950/35 flex items-center justify-end px-0.5">
-          <span className="w-2 h-2 rounded-full bg-sky-50" />
-        </div>
-      </div>
-
-      {/* Mode Frosted Tag */}
-      <div className="absolute left-17 sm:left-18 bottom-3 px-2.5 py-0.5 rounded-md bg-white/80 backdrop-blur-xs border border-white/90 shadow-2xs">
-        <span className="text-[10px] sm:text-[11px] font-extrabold tracking-wide text-slate-900 uppercase whitespace-nowrap">
-          {modeLabel}
-        </span>
-      </div>
-
-      {/* Right Translucent Live Readout Box: Candle Direction with Market Window, High/Low Tick RSI, or Last Digit */}
-      {candle2mDirection ? (
-        <div
-          className={`absolute right-3.5 bottom-2.5 w-14 h-15 sm:w-15 sm:h-16 rounded-xl backdrop-blur-xs border flex flex-col items-center justify-center shadow-xs px-1 ${
-            candle2mDirection === 'bullish'
-              ? 'bg-emerald-100/90 border-emerald-400 text-emerald-700'
-              : candle2mDirection === 'bearish'
-              ? 'bg-red-100/90 border-red-400 text-red-600'
-              : 'bg-slate-100/85 border-slate-300/90 text-slate-700'
-          }`}
-        >
-          <span className="text-[9px] font-mono font-extrabold leading-none uppercase">
-            {candleWindowLabel || '2m'}
-          </span>
-          <span className="font-mono text-2xl sm:text-3xl font-extrabold leading-tight select-none">
-            {candle2mDirection === 'bullish' ? '▲' : candle2mDirection === 'bearish' ? '▼' : '—'}
-          </span>
-        </div>
-      ) : highLowTickReadout ? (
-        <div
-          className={`absolute right-3.5 bottom-2.5 w-14 h-15 sm:w-15 sm:h-16 rounded-xl backdrop-blur-xs border flex flex-col items-center justify-center shadow-xs px-1 ${
-            highLowTickReadout.contractType === 'HIGH_TICK'
-              ? 'bg-emerald-100/90 border-emerald-400 text-emerald-700'
-              : 'bg-rose-100/90 border-rose-400 text-rose-700'
-          }`}
-        >
-          <span className="text-[8px] font-mono font-extrabold leading-none uppercase truncate max-w-full">
-            {highLowTickReadout.windowLabel ? `${highLowTickReadout.windowLabel} RSI` : '5m RSI'}
-          </span>
-          <span className="font-mono tabular-nums text-base sm:text-lg font-extrabold leading-tight select-none">
-            {highLowTickReadout.rsi5m !== undefined ? highLowTickReadout.rsi5m.toFixed(0) : '50'}
-          </span>
-          <span className="text-[9px] font-mono font-extrabold leading-none">
-            {highLowTickReadout.contractType === 'HIGH_TICK' ? 'H' : 'L'}#{highLowTickReadout.targetTick}
-          </span>
-        </div>
-      ) : (
-        <div className="absolute right-3.5 bottom-2.5 w-13 h-15 sm:w-14 sm:h-16 rounded-xl bg-rose-100/75 backdrop-blur-xs border border-rose-300/80 flex items-center justify-center shadow-xs">
-          <span className="font-mono tabular-nums text-3xl sm:text-4xl font-extrabold text-[#9f2b36] select-none">
-            {lastDigit}
-          </span>
-        </div>
-      )}
-    </div>
-  );
-};
-
-const ScanningRing: React.FC<{ secondsLeft: number; totalSeconds?: number }> = ({
+const ScanningRing: React.FC<{ secondsLeft: number; totalSeconds?: number; size?: number }> = ({
   secondsLeft,
   totalSeconds = 17,
+  size = 38,
 }) => {
   const total = Math.max(1, totalSeconds);
-  const radius = 23;
+  const strokeWidth = 3;
+  const radius = (size - strokeWidth * 2) / 2;
   const circumference = 2 * Math.PI * radius;
   const progress = Math.max(0.04, Math.min(1, secondsLeft / total));
   const strokeDashoffset = circumference * (1 - progress);
@@ -329,24 +93,27 @@ const ScanningRing: React.FC<{ secondsLeft: number; totalSeconds?: number }> = (
       : `${secondsLeft}s`;
 
   return (
-    <div className="relative w-14 h-14 flex items-center justify-center shrink-0">
-      <svg className="w-14 h-14 -rotate-90" viewBox="0 0 56 56">
+    <div
+      style={{ width: size, height: size }}
+      className="relative flex items-center justify-center shrink-0"
+    >
+      <svg style={{ width: size, height: size }} className="-rotate-90" viewBox={`0 0 ${size} ${size}`}>
         <circle
-          cx="28"
-          cy="28"
+          cx={size / 2}
+          cy={size / 2}
           r={radius}
           fill="none"
-          stroke="#bfdbfe"
-          strokeWidth="4.5"
-          opacity="0.55"
+          stroke="#e2e8f0"
+          strokeWidth={strokeWidth}
+          opacity="1"
         />
         <circle
-          cx="28"
-          cy="28"
+          cx={size / 2}
+          cy={size / 2}
           r={radius}
           fill="none"
-          stroke="#22d3ee"
-          strokeWidth="4.5"
+          stroke="#0284c7"
+          strokeWidth={strokeWidth}
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}
@@ -354,8 +121,8 @@ const ScanningRing: React.FC<{ secondsLeft: number; totalSeconds?: number }> = (
         />
       </svg>
       <span
-        className={`absolute font-mono tabular-nums font-extrabold text-cyan-500 ${
-          secondsLeft >= 60 ? 'text-[11px] sm:text-xs leading-none' : 'text-base leading-none'
+        className={`absolute font-mono tabular-nums font-bold text-slate-900 ${
+          secondsLeft >= 60 ? 'text-[9px] leading-none' : 'text-[11px] leading-none'
         }`}
       >
         {formattedTime}
@@ -371,9 +138,9 @@ const MacdMiniHistogram: React.FC<{
   const maxAbs = Math.max(0.00001, ...valid.map((v) => Math.abs(v)));
 
   return (
-    <div className="flex items-center gap-2 h-8 px-2.5 py-1 bg-slate-950/70 rounded-xl border border-slate-800/80">
-      <span className="text-[10px] font-mono font-bold text-slate-500 uppercase shrink-0">
-        MACD Hist:
+    <div className="flex items-center gap-1.5 h-6 px-2 py-0.5 bg-slate-100 rounded-md border border-slate-200">
+      <span className="text-[9px] font-mono font-bold text-slate-500 uppercase shrink-0">
+        Hist:
       </span>
       <div className="flex items-center justify-between gap-1 flex-1 h-full pt-0.5">
         {histograms.slice(-8).map((h, i, arr) => {
@@ -381,7 +148,7 @@ const MacdMiniHistogram: React.FC<{
             return (
               <div
                 key={i}
-                className="flex-1 h-0.5 bg-slate-800 rounded self-center"
+                className="flex-1 h-0.5 bg-slate-300 rounded self-center"
               />
             );
           }
@@ -392,23 +159,23 @@ const MacdMiniHistogram: React.FC<{
             Math.max(25, Math.round((Math.abs(h) / maxAbs) * 100))
           );
 
-          let barBg = 'bg-slate-500';
+          let barBg = 'bg-slate-400';
           let title = '';
           if (!isPos) {
             if (h <= prev) {
-              barBg = 'bg-red-700'; // Long dark red
-              title = `Long Dark Red (${h.toFixed(4)})`;
+              barBg = 'bg-red-600'; // Long dark red (No Trade)
+              title = `Long Dark Red [No Trade] (${h.toFixed(4)})`;
             } else {
-              barBg = 'bg-rose-400'; // Faded red
-              title = `Faded Red (${h.toFixed(4)})`;
+              barBg = 'bg-rose-400'; // Faded red (Good Market)
+              title = `Faded Red [Good Market] (${h.toFixed(4)})`;
             }
           } else {
             if (h < prev) {
-              barBg = 'bg-amber-400'; // Faded green
+              barBg = 'bg-amber-400'; // Faded green (No Trade)
               title = `Faded Green [No Trade] (${h.toFixed(4)})`;
             } else {
-              barBg = 'bg-emerald-500'; // Short/Long dark green
-              title = `Dark Green (${h.toFixed(4)})`;
+              barBg = 'bg-emerald-600'; // Short/Long dark green
+              title = `Dark Green [Good Market] (${h.toFixed(4)})`;
             }
           }
 
@@ -420,7 +187,7 @@ const MacdMiniHistogram: React.FC<{
             >
               <div
                 style={{ height: `${heightPct}%` }}
-                className={`w-full max-w-[8px] rounded-xs transition-all ${barBg}`}
+                className={`w-full max-w-[6px] rounded-xs transition-all ${barBg}`}
               />
             </div>
           );
@@ -429,6 +196,7 @@ const MacdMiniHistogram: React.FC<{
     </div>
   );
 };
+
 
 export const SignalsView: React.FC<SignalsViewProps> = ({
   normalBotConfig,
@@ -446,6 +214,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   theme = 'dark',
 }) => {
   const [category, setCategory] = useState<SignalCategory>('even_odd');
+  const [evenOddStrategyFilter, setEvenOddStrategyFilter] = useState<'all' | 'S1' | 'S2' | 'S3'>('all');
   const [overUnderBarrier, setOverUnderBarrier] = useState<BarrierFilter>('all');
   const [chartMarket, setChartMarket] = useState<Market>(SIGNAL_MARKETS[0]);
   const [entryTimingModes, setEntryTimingModes] = useState<Record<string, 'user_click' | 'auto_momentum'>>({});
@@ -551,7 +320,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   };
 
   const rawSnapshots: MarketSignalSnapshot[] = scannerRef.current
-    ? scannerRef.current.getSnapshots(category, overUnderBarrier, ticks)
+    ? scannerRef.current.getSnapshots(category, overUnderBarrier, ticks, evenOddStrategyFilter)
     : [];
 
   // Hard category invariant: each signal tab strictly holds ONLY its own contract family
@@ -596,9 +365,9 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
   const subtitleText =
     category === 'only_up'
-      ? 'Candlestick & MACD Strategy · Synchronized with Deriv Advanced TradingView 1m candle clock. Good market: Long Dark Red, Faded Red, or Short Dark Green histogram activates the Run button. Entry triggers at final 10 seconds of candle finish.'
+      ? 'Candlestick & MACD Strategy · Synchronized with Deriv Advanced TradingView 1m candle clock. Good market: Faded Red or Short Dark Green histogram activates the Run button. Entry triggers at final 10 seconds of candle finish.'
       : category === 'even_odd'
-      ? 'Triggers at ≥52% with rising momentum (50/50 equal = no trade, scan again). Initial entry waits for ≥2 opposite digits + 1 confirmation digit, then trades continuously.'
+      ? '3-Tier Quantitative Even/Odd Strategy: S1 (Green & Red same market, Blue opposite, Green <12%, Blue digit entry) · S2 (All 3 movers same market, dominancy ≥10%, 2 opposite digits entry) · S3 (Green & Blue same, Red opposite, dominancy ≥10%, Red digit then opposite digit entry).'
       : category === 'over_under'
       ? 'Over 4, 5, 6, 7 (53/45/35/30%) & Under 5, 4, 3, 2 (53/45/35/30%) only. Entry waits for ≥3 consecutive opposite digits + 1 winning confirmation digit, then trades continuously.'
       : category === 'only_up_down'
@@ -673,16 +442,12 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
       {/* 2. COMPACT PARAMETER STRIP (Stake · Ticks · Martingale · Take profit · Stop loss) */}
       <div
-        className={`w-fit max-w-full rounded-2xl border px-3.5 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 transition-colors ${
-          isLight
-            ? 'bg-slate-50/95 border-slate-200 shadow-2xs'
-            : 'bg-[#111827] border-slate-800 shadow-sm'
-        }`}
+        className="w-fit max-w-full rounded-2xl border border-slate-200 px-3.5 py-3 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 transition-colors bg-white shadow-sm text-slate-900"
       >
         <div className="flex items-center gap-2.5 sm:gap-3.5 flex-wrap">
           {/* Stake */}
           <div className="flex flex-col items-start gap-1">
-            <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+            <label className="text-[11px] font-bold text-slate-500 whitespace-nowrap">
               Stake ($)
             </label>
             <NumericInput
@@ -698,7 +463,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
           {/* Number of Ticks */}
           <div className="flex flex-col items-start gap-1">
-            <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+            <label className="text-[11px] font-bold text-slate-500 whitespace-nowrap">
               Ticks
             </label>
             <NumericInput
@@ -715,7 +480,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
           {/* Martingale */}
           <div className="flex flex-col items-start gap-1">
-            <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+            <label className="text-[11px] font-bold text-slate-500 whitespace-nowrap">
               Martingale
             </label>
             <NumericInput
@@ -732,13 +497,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
           {/* Take Profit */}
           <div className="flex flex-col items-start gap-1">
             <div className="flex items-center justify-between w-full gap-1">
-              <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+              <label className="text-[11px] font-bold text-slate-500 whitespace-nowrap">
                 Take profit
               </label>
               <button
                 type="button"
                 onClick={() => onUpdateNormalBotConfig({ takeProfit: Number((stake * 2).toFixed(2)) })}
-                className="text-[9px] font-extrabold text-cyan-400 hover:text-cyan-300 cursor-pointer underline decoration-cyan-500/50 whitespace-nowrap"
+                className="text-[9px] font-extrabold text-sky-600 hover:text-sky-700 cursor-pointer underline decoration-sky-500/50 whitespace-nowrap"
                 title="Set to 2x Stake (Default risk-management ratio)"
               >
                 2x (${(stake * 2).toFixed(2)})
@@ -757,7 +522,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
           {/* Stop Loss */}
           <div className="flex flex-col items-start gap-1">
-            <label className="text-[11px] font-bold text-slate-400 whitespace-nowrap">
+            <label className="text-[11px] font-bold text-slate-500 whitespace-nowrap">
               Stop loss
             </label>
             <NumericInput
@@ -772,13 +537,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
           </div>
         </div>
 
-        <div className="sm:pl-3 sm:border-l sm:border-slate-700/50 text-[11px] text-slate-400 leading-snug">
+        <div className="sm:pl-3 sm:border-l sm:border-slate-200 text-[11px] text-slate-500 leading-snug">
           <div>
-            Duration <strong className="font-mono tabular-nums text-white">{ticks}t</strong> · Win resets stake to{' '}
-            <strong className="font-mono tabular-nums text-white">{stake}</strong>
+            Duration <strong className="font-mono tabular-nums text-slate-900">{ticks}t</strong> · Win resets stake to{' '}
+            <strong className="font-mono tabular-nums text-slate-900">{stake}</strong>
           </div>
           <div>
-            Loss multiplies by <strong className="font-mono tabular-nums text-white">{martingale}x</strong>
+            Loss multiplies by <strong className="font-mono tabular-nums text-slate-900">{martingale}x</strong>
           </div>
         </div>
       </div>
@@ -1009,6 +774,38 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
             ))}
           </div>
         )}
+
+        {category === 'even_odd' && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-200">
+            <span className="text-xs font-bold text-slate-700">Strategy Filter:</span>
+            <div className="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200 gap-0.5">
+              {(
+                [
+                  { id: 'all', label: 'All (S1, S2, S3)' },
+                  { id: 'S1', label: 'S1 · Divergence' },
+                  { id: 'S2', label: 'S2 · Dominancy' },
+                  { id: 'S3', label: 'S3 · Split Movers' },
+                ] as const
+              ).map((strat) => (
+                <button
+                  key={strat.id}
+                  type="button"
+                  onClick={() => setEvenOddStrategyFilter(strat.id)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                    evenOddStrategyFilter === strat.id
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {strat.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[11px] font-mono text-slate-500 ml-auto hidden sm:inline">
+              🟢 Most (G) · 🔵 2nd (B) · 🔴 Least (R)
+            </span>
+          </div>
+        )}
       </div>
 
       {/* 3B. DERIV ADVANCED TRADINGVIEW CHART (1M FOR ONLY UP / 5M FOR HIGH LOW TICK) */}
@@ -1022,8 +819,8 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         />
       )}
 
-      {/* 4. 2-COLUMN MULTI-MARKET SIGNAL CARDS GRID */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* 4. HIGH-DENSITY COMPACT MULTI-MARKET BOT CARDS GRID (MOBILE-OPTIMIZED) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
         {snapshots.map((snap) => {
           const isThisCardRunning =
             isActiveSignalForCurrentTab && activeSignal?.marketId === snap.market.id;
@@ -1067,562 +864,564 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
               ? activeSignal.patternSummary
               : snap.patternSummary;
 
-          const cardBannerModeLabel = showScanningState
-            ? modeBannerLabel
-            : category === 'even_odd' ||
-              category === 'only_up_down' ||
-              category === 'high_low_tick' ||
-              category === 'only_up'
-            ? displaySignalLabel
-            : category === 'over_under'
-            ? `${displayContractType} #${displayPrediction}`
-            : `MATCH #${displayPrediction}`;
-
           return (
             <div
               key={`${category}-${snap.market.id}`}
-              className={`rounded-2xl border overflow-hidden flex flex-col transition-all ${
+              className={`relative rounded-xl border p-2.5 sm:p-3 flex flex-col justify-between gap-2.5 transition-all overflow-hidden bg-white shadow-xs hover:shadow-md ${
                 isThisCardRunning
-                  ? 'ring-2 ring-[#2563eb] border-[#2563eb]'
-                  : isLight
-                  ? 'bg-white border-slate-200 shadow-xs'
-                  : 'bg-[#111827] border-slate-800 shadow-sm'
+                  ? 'ring-2 ring-emerald-500 border-emerald-500'
+                  : 'border-slate-200/90 hover:border-slate-300'
               }`}
             >
-              <CyberScannerBanner
-                marketId={snap.market.id}
-                marketName={snap.market.name}
-                modeLabel={cardBannerModeLabel}
-                lastDigit={snap.lastDigit}
-                candle2mDirection={
-                  category === 'only_up_down' || category === 'only_up'
-                    ? snap.candle2mDirection
-                    : undefined
-                }
-                candleWindowLabel={snap.scanWindowLabel}
-                highLowTickReadout={
-                  category === 'high_low_tick' &&
-                  (displayContractType === 'HIGH_TICK' || displayContractType === 'LOW_TICK')
-                    ? {
-                        contractType: displayContractType,
-                        targetTick: Math.min(5, Math.max(1, Number(displayPrediction) || 5)),
-                        rsi5m: snap.rsi5m,
-                        windowLabel: snap.scanWindowLabel,
-                      }
-                    : undefined
-                }
-              />
-
-              <div className="p-4 flex flex-col gap-3 flex-1 justify-between">
-                <div className="flex items-start justify-between gap-2">
+              {/* Compact Card Header */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border transition-all ${
+                      isThisCardRunning
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                  </div>
                   <div className="min-w-0">
-                    <h3 className="text-sm sm:text-base font-bold text-white leading-tight">
-                      {snap.market.name.replace(' Index', '')}
-                    </h3>
-                    <div className="flex items-center gap-1.5 flex-wrap text-xs font-mono mt-0.5">
-                      <span className="text-slate-400">{snap.market.id}</span>
-                      {(category === 'only_up_down' || category === 'high_low_tick') && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="text-xs sm:text-sm font-bold text-slate-900 leading-tight truncate">
+                        {snap.market.name.replace(' Index', '')}
+                      </h3>
+                      <span className="text-[10px] font-mono text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 font-semibold">
+                        {snap.market.id}
+                      </span>
+                    </div>
+                    {/* Timeframe & Trend row */}
+                    <div className="flex items-center gap-1 text-[10px] font-mono mt-0.5 text-slate-500">
+                      {category === 'only_up_down' || category === 'high_low_tick' ? (
                         <>
-                          <span className="text-slate-600">·</span>
-                          <div
-                            title={`Tailored scanning window for ${snap.market.name} (click to adjust)`}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 text-[11px] font-semibold"
-                          >
-                            <Clock className="w-3 h-3 text-cyan-400 shrink-0" />
-                            <span>{snap.scanWindowLabel} window</span>
-                            <select
-                              value={snap.scanTotalSeconds}
-                              onChange={(e) => {
-                                const sec = parseInt(e.target.value, 10);
-                                if (!Number.isNaN(sec)) {
-                                  scannerRef.current?.setMarketWindow(category, snap.market.id, sec);
+                          <span className="text-slate-700 font-semibold">{snap.scanWindowLabel}</span>
+                          {snap.marketTrend && (
+                            <>
+                              <span>·</span>
+                              <span
+                                className={
+                                  snap.marketTrend === 'uptrend'
+                                    ? 'text-emerald-600 font-semibold'
+                                    : snap.marketTrend === 'downtrend'
+                                    ? 'text-rose-600 font-semibold'
+                                    : 'text-slate-500'
                                 }
-                              }}
-                              className="bg-slate-900 text-cyan-200 text-[10px] font-bold rounded px-1 py-0 border border-cyan-500/30 focus:outline-none cursor-pointer hover:border-cyan-400"
-                              title={`Change scanning window for ${snap.market.name}`}
-                            >
-                              {category === 'only_up_down' || category === 'high_low_tick'
-                                ? [300, 240, 180, 120, 60].map((s) => (
-                                    <option key={s} value={s}>
-                                      {s === 300 ? '5m (Standard)' : formatWindowDuration(s)}
-                                    </option>
-                                  ))
-                                : [300, 240, 180, 120, 60].map((s) => (
-                                    <option key={s} value={s}>
-                                      {formatWindowDuration(s)}
-                                    </option>
-                                  ))}
-                            </select>
-                          </div>
-                        </>
-                      )}
-                      {(category === 'only_up_down' || category === 'high_low_tick') &&
-                        snap.marketTrend && (
-                          <>
-                            <span className="text-slate-600">·</span>
-                            <span
-                              className={
-                                snap.marketTrend === 'uptrend'
-                                  ? 'text-emerald-400 font-semibold'
-                                  : snap.marketTrend === 'downtrend'
-                                  ? 'text-fuchsia-400 font-semibold'
-                                  : 'text-slate-400'
-                              }
-                            >
-                              {snap.marketTrendSummary ||
-                                (snap.marketTrend === 'uptrend'
+                              >
+                                {snap.marketTrend === 'uptrend'
                                   ? 'Uptrend ▲'
                                   : snap.marketTrend === 'downtrend'
                                   ? 'Downtrend ▼'
-                                  : 'Ranging')}
-                            </span>
-                          </>
-                        )}
+                                  : 'Ranging'}
+                              </span>
+                            </>
+                          )}
+                        </>
+                      ) : category === 'only_up' ? (
+                        <span className="text-slate-700 font-semibold">1m MACD</span>
+                      ) : (
+                        <span className="text-slate-500">Synthetic</span>
+                      )}
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {category === 'high_low_tick' && (
-                      <button
-                        type="button"
-                        onClick={() => setChartMarket(snap.market)}
-                        title={`Inspect ${snap.market.name} on Advanced TradingView`}
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border flex items-center gap-1 cursor-pointer transition-colors ${
-                          chartMarket.id === snap.market.id
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                            : 'bg-slate-800/70 text-slate-300 border-slate-700 hover:border-slate-500'
-                        }`}
-                      >
-                        <TrendingUp className="w-3 h-3" />
-                        <span>Chart</span>
-                      </button>
-                    )}
-
-                    <span
-                      title={
-                        snap.isLiveWs
-                          ? `Live Deriv feed (${snap.lastQuote})`
-                          : `Active stream (${snap.lastQuote})`
-                      }
-                      className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center shrink-0"
-                    >
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                    </span>
                   </div>
                 </div>
 
-                {showScanningState ? (
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-center gap-3.5 py-1">
-                      <ScanningRing
-                        secondsLeft={snap.scanSecondsLeft}
-                        totalSeconds={snap.scanTotalSeconds}
-                      />
-                      <div className="flex flex-col gap-1 min-w-0">
-                        <span className="text-xs sm:text-sm font-extrabold tracking-wide text-white uppercase">
-                          {snap.isClosingGuard
-                            ? 'NO TRADE · CLOSING 20S TREND GUARD'
-                            : category === 'only_up'
-                            ? snap.macdHistogramState === 'faded_green'
-                              ? 'NO TRADE · FADED GREEN HISTOGRAM'
-                              : 'ANALYSING 1M CANDLE & MACD'
-                            : category === 'only_up_down'
-                            ? `SCANNING ${snap.scanWindowLabel.toUpperCase()} TREND & MOMENTUM`
-                            : category === 'high_low_tick'
-                            ? `ANALYSING ${snap.scanWindowLabel.toUpperCase()} CANDLE & RSI`
-                            : 'SCANNING'}
-                        </span>
-                        <span
-                          className={`w-5 h-1 rounded-full ${
-                            snap.isClosingGuard
-                              ? 'bg-rose-500'
-                              : snap.macdHistogramState === 'faded_green'
-                              ? 'bg-amber-500'
-                              : 'bg-cyan-500'
-                          }`}
-                        />
-                        <span className="text-xs text-slate-400 font-mono tabular-nums truncate">
-                          {snap.scanStatusNote}
-                        </span>
-                      </div>
-                    </div>
-
+                {/* Right Header: Quote, Digit Badge & Live Stream Dot */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {category === 'high_low_tick' && (
                     <button
                       type="button"
-                      disabled
-                      className={`w-full py-2.5 px-4 rounded-full text-xs sm:text-sm font-semibold text-left cursor-not-allowed border transition-colors ${
-                        snap.macdHistogramState === 'faded_green'
-                          ? 'bg-amber-950/25 text-amber-400 border-amber-900/50'
-                          : isLight
-                          ? 'bg-slate-100 text-slate-400 border-slate-200'
-                          : 'bg-slate-800/35 text-slate-500 border-slate-700/60'
+                      onClick={() => setChartMarket(snap.market)}
+                      title={`Inspect ${snap.market.name} on Advanced TradingView`}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 cursor-pointer transition-colors ${
+                        chartMarket.id === snap.market.id
+                          ? 'bg-sky-50 text-sky-700 border-sky-300'
+                          : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                       }`}
                     >
-                      {snap.isClosingGuard
-                        ? `No trade · Closing 20s (${snap.scanSecondsLeft}s left ≤ 20s · Protecting trend shift)`
-                        : category === 'only_up'
-                        ? snap.macdHistogramState === 'faded_green'
-                          ? `No trade · Faded green histogram (${snap.scanSecondsLeft}s left)`
-                          : `Run (awaiting Long Dark Red, Faded Red, or Short Dark Green MACD...)`
-                        : category === 'only_up_down'
-                        ? snap.marketTrend === 'ranging'
-                          ? `Run (awaiting ${snap.scanWindowLabel} market trend...)`
-                          : `Run (trend confirmed · awaiting ${snap.scanWindowLabel} momentum...)`
-                        : category === 'high_low_tick'
-                        ? `Run (awaiting ${snap.scanWindowLabel} wicks on both sides...)`
-                        : 'Run (scanning for market...)'}
+                      <TrendingUp className="w-2.5 h-2.5" />
+                      <span>Chart</span>
                     </button>
+                  )}
+
+                  {/* Last Price & Digit Badge */}
+                  <div className="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 text-[11px] font-mono tabular-nums">
+                    <span className="text-slate-700 hidden sm:inline">{snap.lastQuote}</span>
+                    <span
+                      className={`w-4 h-4 rounded-full flex items-center justify-center font-bold text-[10px] ${
+                        snap.lastDigit % 2 === 0
+                          ? 'bg-slate-200 text-slate-800 border border-slate-300'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                      title={`Last digit: ${snap.lastDigit}`}
+                    >
+                      {snap.lastDigit}
+                    </span>
                   </div>
-                ) : (
-                  <div className="flex flex-col gap-2.5">
-                    <div className="flex items-start gap-3">
-                      <span
-                        className={`px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-extrabold tracking-wide uppercase shrink-0 shadow-2xs ${
-                          displaySignalTone === 'emerald'
-                            ? 'bg-[#10b981] text-emerald-50'
-                            : displaySignalTone === 'fuchsia'
-                            ? 'bg-[#c026d3] text-fuchsia-50'
-                            : displaySignalTone === 'amber'
-                            ? 'bg-[#d97706] text-amber-50'
-                            : 'bg-[#0284c7] text-sky-50'
-                        }`}
-                      >
-                        {displaySignalLabel}
+
+                  {/* Live Stream indicator */}
+                  <span
+                    title={snap.isLiveWs ? `Live Deriv feed (${snap.lastQuote})` : `Active stream`}
+                    className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0"
+                  />
+                </div>
+              </div>
+
+              {/* Card Body */}
+              {showScanningState ? (
+                <div className="flex flex-col gap-2 pt-1 border-t border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <ScanningRing
+                      secondsLeft={snap.scanSecondsLeft}
+                      totalSeconds={snap.scanTotalSeconds}
+                      size={36}
+                    />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-bold tracking-wide text-slate-900 uppercase truncate">
+                        {snap.isClosingGuard
+                          ? 'NO TRADE · CLOSING 20S GUARD'
+                          : category === 'only_up'
+                          ? snap.macdHistogramState === 'faded_green'
+                            ? 'NO TRADE · FADED GREEN'
+                            : snap.macdHistogramState === 'long_dark_red'
+                            ? 'NO TRADE · LONG DARK RED'
+                            : 'ANALYSING 1M MACD'
+                          : category === 'only_up_down'
+                          ? `SCANNING ${snap.scanWindowLabel.toUpperCase()} MOMENTUM`
+                          : category === 'high_low_tick'
+                          ? `ANALYSING ${snap.scanWindowLabel.toUpperCase()} RSI`
+                          : 'SCANNING PATTERNS'}
                       </span>
-
-                      <div className="flex flex-col min-w-0">
-                        <span className="text-xs sm:text-sm font-extrabold text-white font-mono tabular-nums">
-                          {category === 'only_up_down'
-                            ? `Trend + Strong ${snap.scanWindowLabel} · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`
-                            : category === 'high_low_tick'
-                            ? `${snap.scanWindowLabel} Wicks + RSI · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`
-                            : `Market found · ${displayConfidencePct}% · ${displayPayoutMultiplier.toFixed(2)}x`}
-                        </span>
-                        <span className="text-xs font-semibold text-slate-400 font-mono tabular-nums truncate">
-                          {displayDistributionSubtext}
-                        </span>
-                      </div>
+                      <span className="text-[11px] text-slate-500 font-mono tabular-nums truncate">
+                        {snap.scanStatusNote}
+                      </span>
                     </div>
+                  </div>
 
-                    {/* Unboxed Entry Confirmation / Pattern Telemetry */}
-                    <div className="flex flex-col gap-0.5 text-[11px] font-mono tabular-nums leading-snug">
-                      {displayPatternSummary && (
-                        <span
-                          className={`truncate ${
-                            snap.entryConfirmedNow && !normalBotWaitingForEntry
-                              ? 'text-emerald-400 font-bold'
-                              : 'text-slate-400'
+                  {category === 'even_odd' && snap.greenBarDigit !== undefined && (
+                    <div className="flex items-center gap-1 text-[10px] font-mono font-bold bg-slate-50 p-1 rounded border border-slate-200 justify-between">
+                      <span className="text-slate-500 text-[9px]">Movers:</span>
+                      <span className="text-emerald-700 bg-emerald-50 px-1 rounded border border-emerald-200">
+                        🟢 D{snap.greenBarDigit}: {snap.greenBarPct?.toFixed(1)}%
+                      </span>
+                      <span className="text-blue-700 bg-blue-50 px-1 rounded border border-blue-200">
+                        🔵 D{snap.blueBarDigit}: {snap.blueBarPct?.toFixed(1)}%
+                      </span>
+                      <span className="text-rose-700 bg-rose-50 px-1 rounded border border-rose-200">
+                        🔴 D{snap.redBarDigit}: {snap.redBarPct?.toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled
+                    className={`w-full py-1.5 px-3 rounded-lg text-xs font-semibold text-center cursor-not-allowed border truncate transition-colors ${
+                      snap.macdHistogramState === 'faded_green'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : snap.macdHistogramState === 'long_dark_red'
+                        ? 'bg-rose-50 text-rose-800 border-rose-200'
+                        : 'bg-blue-50 text-blue-700 border-blue-200'
+                    }`}
+                  >
+                    {snap.isClosingGuard
+                      ? `No trade · Closing 20s (${snap.scanSecondsLeft}s left)`
+                      : category === 'only_up'
+                      ? snap.macdHistogramState === 'faded_green'
+                        ? `No trade · Faded Green (${snap.scanSecondsLeft}s left)`
+                        : snap.macdHistogramState === 'long_dark_red'
+                        ? `No trade · Long Dark Red (${snap.scanSecondsLeft}s left)`
+                        : `Run (awaiting Faded Red or Short Dark Green MACD...)`
+                      : category === 'only_up_down'
+                      ? snap.marketTrend === 'ranging'
+                        ? `Run (awaiting ${snap.scanWindowLabel} trend...)`
+                        : `Run (trend confirmed · awaiting momentum...)`
+                      : category === 'high_low_tick'
+                      ? `Run (awaiting ${snap.scanWindowLabel} wicks...)`
+                      : 'Run (scanning for market...)'}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2 pt-1 border-t border-slate-100">
+                  {/* Signal Badge & Confidence */}
+                  <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-extrabold tracking-wide uppercase shrink-0 shadow-2xs ${
+                        displaySignalTone === 'emerald'
+                          ? 'bg-[#10b981] text-emerald-50'
+                          : displaySignalTone === 'fuchsia'
+                          ? 'bg-[#c026d3] text-fuchsia-50'
+                          : displaySignalTone === 'amber'
+                          ? 'bg-amber-500 text-slate-950 font-black'
+                          : 'bg-[#0284c7] text-sky-50'
+                      }`}
+                    >
+                      {displaySignalLabel}
+                    </span>
+
+                    <div className="flex items-center gap-1.5 text-xs font-mono tabular-nums">
+                      <span className="font-extrabold text-slate-900">
+                        {displayConfidencePct}%
+                      </span>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-slate-800 font-extrabold bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                        {displayPayoutMultiplier.toFixed(2)}x
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Telemetry / Summary */}
+                  <div className="text-[11px] font-mono tabular-nums leading-tight truncate text-slate-500">
+                    {displayPatternSummary || displayDistributionSubtext}
+                  </div>
+
+                  {/* Even/Odd Quantitative Strategy Panel */}
+                  {category === 'even_odd' && (
+                    <div className="p-2 rounded-lg bg-blue-50/50 border border-blue-100 flex flex-col gap-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-blue-600 text-white border border-blue-700">
+                          {snap.evenOddStrategyId || 'Strategy'} Qualified
+                        </span>
+                        {snap.evenDigitsGe10Count !== undefined && snap.oddDigitsGe10Count !== undefined && (
+                          <span className="text-[10px] font-mono font-bold text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                            ≥10%: Even {snap.evenDigitsGe10Count}/5 · Odd {snap.oddDigitsGe10Count}/5
+                          </span>
+                        )}
+                      </div>
+
+                      {snap.greenBarDigit !== undefined && snap.blueBarDigit !== undefined && snap.redBarDigit !== undefined && (
+                        <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-center">
+                          <div className="p-1 rounded bg-emerald-50 border border-emerald-200 flex flex-col">
+                            <span className="text-[9px] font-bold text-emerald-800">🟢 Most (G)</span>
+                            <span className="font-black text-emerald-900">
+                              D{snap.greenBarDigit} ({snap.greenBarPct?.toFixed(1)}%)
+                            </span>
+                          </div>
+                          <div className="p-1 rounded bg-blue-50 border border-blue-200 flex flex-col">
+                            <span className="text-[9px] font-bold text-blue-800">🔵 2nd (B)</span>
+                            <span className="font-black text-blue-900">
+                              D{snap.blueBarDigit} ({snap.blueBarPct?.toFixed(1)}%)
+                            </span>
+                          </div>
+                          <div className="p-1 rounded bg-rose-50 border border-rose-200 flex flex-col">
+                            <span className="text-[9px] font-bold text-rose-800">🔴 Least (R)</span>
+                            <span className="font-black text-rose-900">
+                              D{snap.redBarDigit} ({snap.redBarPct?.toFixed(1)}%)
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {snap.evenOddEntryRuleText && (
+                        <div className="text-[10px] font-medium text-blue-950 bg-white p-1.5 rounded border border-blue-200 flex items-center justify-between gap-1">
+                          <span className="truncate">🎯 {snap.evenOddEntryRuleText}</span>
+                          {snap.evenOddEntryDigit !== undefined && (
+                            <span className="font-mono font-black text-blue-700 shrink-0 bg-blue-100 px-1 rounded">
+                              Target: D{snap.evenOddEntryDigit}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 5m Candle User Decision Bar (if high_low_tick or only_up_down) */}
+                  {(category === 'high_low_tick' || category === 'only_up_down') && (
+                    <div className="p-1.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-1 text-[11px]">
+                      <span className="text-slate-500 font-medium text-[10px]">Start:</span>
+                      <div className="inline-flex rounded-md bg-white p-0.5 border border-slate-200">
+                        <button
+                          type="button"
+                          onClick={() => setEntryTimingMode(snap.market.id, 'user_click')}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                            getEntryTimingMode(snap.market.id) === 'user_click'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
                           }`}
                         >
-                          {displayPatternSummary}
-                        </span>
-                      )}
-                      {category === 'over_under' && snap.topBarriersSummary && (
-                        <span className="truncate text-slate-500">
-                          Qualifying · {snap.topBarriersSummary}
-                        </span>
-                      )}
-                      {category === 'high_low_tick' && snap.highLowBreakdownSummary && (
-                        <span className="truncate text-slate-500">
-                          {snap.highLowBreakdownSummary}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* 5m Candle Strategy User Decision Bar */}
-                    {(category === 'high_low_tick' || category === 'only_up_down') && (
-                      <div className="p-2.5 rounded-xl bg-slate-900/90 border border-emerald-500/40 flex flex-col gap-1.5 shadow-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1.5 text-emerald-400 font-extrabold text-[11px]">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping shrink-0" />
-                            <span>5m Conditions Met · RSI & Wicks Ready</span>
-                          </div>
-                          <span className="text-[10px] font-mono text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-500/30 font-bold">
-                            You Decide Entry
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between gap-1 pt-1 border-t border-slate-800 text-[11px]">
-                          <span className="text-slate-400 font-medium">Start trade:</span>
-                          <div className="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-700">
-                            <button
-                              type="button"
-                              onClick={() => setEntryTimingMode(snap.market.id, 'user_click')}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                                getEntryTimingMode(snap.market.id) === 'user_click'
-                                  ? 'bg-emerald-500 text-slate-950 shadow-xs'
-                                  : 'text-slate-400 hover:text-slate-200'
-                              }`}
-                            >
-                              On My Click (Start Now)
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEntryTimingMode(snap.market.id, 'auto_momentum')}
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                                getEntryTimingMode(snap.market.id) === 'auto_momentum'
-                                  ? 'bg-emerald-500 text-slate-950 shadow-xs'
-                                  : 'text-slate-400 hover:text-slate-200'
-                              }`}
-                            >
-                              3-Tick Auto
-                            </button>
-                          </div>
-                        </div>
+                          On My Click
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEntryTimingMode(snap.market.id, 'auto_momentum')}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                            getEntryTimingMode(snap.market.id) === 'auto_momentum'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          3-Tick Auto
+                        </button>
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {/* ONLY UP MACD Candlestick Strategy Panel */}
-                    {category === 'only_up' && (
-                      <div className="p-3 rounded-xl bg-slate-900/90 border border-emerald-500/40 flex flex-col gap-2.5 shadow-xs">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wide border flex items-center gap-1.5 ${
-                                snap.macdHistogramState === 'short_dark_green'
-                                  ? 'bg-emerald-950/90 border-emerald-500 text-emerald-300'
-                                  : snap.macdHistogramState === 'faded_red'
-                                  ? 'bg-rose-950/90 border-rose-500 text-rose-300'
-                                  : snap.macdHistogramState === 'long_dark_red'
-                                  ? 'bg-red-950/90 border-red-600 text-red-300'
-                                  : snap.macdHistogramState === 'faded_green'
-                                  ? 'bg-amber-950/90 border-amber-500 text-amber-300'
-                                  : 'bg-slate-800 border-slate-700 text-slate-300'
-                              }`}
-                            >
-                              <span
-                                className={`w-2 h-2 rounded-full ${
-                                  snap.isMacdGoodMarket
-                                    ? 'bg-emerald-400 animate-ping'
-                                    : snap.macdHistogramState === 'faded_green'
-                                    ? 'bg-amber-400'
-                                    : 'bg-slate-400'
-                                }`}
-                              />
-                              <span>{snap.macdStateLabel || 'MACD Histogram'}</span>
-                            </span>
-                            <span className="text-[11px] font-mono text-slate-300 font-semibold">
-                              {snap.isMacdGoodMarket ? 'Good Market ✔' : 'No Trade ✕'}
-                            </span>
-                          </div>
-
-                          <div
-                            className={`px-2 py-0.5 rounded-md font-mono text-[11px] font-bold border flex items-center gap-1.5 ${
-                              snap.is10sEntryActive
-                                ? 'bg-emerald-500 text-slate-950 border-emerald-400 animate-pulse shadow-xs font-black'
-                                : 'bg-slate-950 text-cyan-300 border-cyan-800/60'
+                  {/* ONLY UP MACD Candlestick Strategy Panel */}
+                  {category === 'only_up' && (
+                    <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 flex flex-col gap-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border flex items-center gap-1 ${
+                              snap.macdHistogramState === 'short_dark_green'
+                                ? 'bg-emerald-100 border-emerald-400 text-emerald-800'
+                                : snap.macdHistogramState === 'faded_red'
+                                ? 'bg-rose-100 border-rose-400 text-rose-800'
+                                : snap.macdHistogramState === 'long_dark_red'
+                                ? 'bg-red-100 border-red-400 text-red-800'
+                                : snap.macdHistogramState === 'faded_green'
+                                ? 'bg-amber-100 border-amber-400 text-amber-800'
+                                : 'bg-slate-100 border-slate-200 text-slate-700'
                             }`}
                           >
-                            <Clock className="w-3 h-3 shrink-0" />
-                            <span>
-                              {snap.is10sEntryActive
-                                ? `⚡ 10s Window Active (${formatTradingViewCountdown(snap.candleSecondsLeft ?? 10)} left)`
-                                : `TradingView: ${formatTradingViewCountdown(snap.candleSecondsLeft ?? 60)} left`}
-                            </span>
-                          </div>
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                snap.isMacdGoodMarket
+                                  ? 'bg-emerald-500 animate-ping'
+                                  : snap.macdHistogramState === 'long_dark_red'
+                                  ? 'bg-red-500'
+                                  : snap.macdHistogramState === 'faded_green'
+                                  ? 'bg-amber-500'
+                                  : 'bg-slate-400'
+                              }`}
+                            />
+                            <span>{snap.macdStateLabel || 'MACD Histogram'}</span>
+                          </span>
+                          <span className={`text-[10px] font-mono font-bold ${snap.isMacdGoodMarket ? 'text-emerald-700' : 'text-slate-600'}`}>
+                            {snap.isMacdGoodMarket ? 'Good Market ✔' : 'No Trade ✕'}
+                          </span>
                         </div>
 
-                        {/* Mini MACD Histogram Bars Visualizer */}
-                        <MacdMiniHistogram histograms={snap.recentMacdHistograms} />
-
-                        {/* Telemetry info row */}
-                        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/80 pt-1.5 px-0.5">
-                          <span>Sole Indicator: MACD (12, 26, 9)</span>
-                          <span>Entry: ≤10s Candle Finish</span>
+                        <div
+                          className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold border flex items-center gap-1 ${
+                            snap.is10sEntryActive
+                              ? 'bg-emerald-600 text-white border-emerald-500 animate-pulse font-black'
+                              : 'bg-white text-slate-700 border-slate-200'
+                          }`}
+                        >
+                          <Clock className="w-2.5 h-2.5 shrink-0" />
+                          <span>
+                            {snap.is10sEntryActive
+                              ? `⚡ 10s Active (${formatTradingViewCountdown(snap.candleSecondsLeft ?? 10)})`
+                              : `TV: ${formatTradingViewCountdown(snap.candleSecondsLeft ?? 60)} left`}
+                          </span>
                         </div>
                       </div>
-                    )}
 
-                    {isThisCardRunning ? (
+                      {/* Mini MACD Histogram Bars Visualizer */}
+                      <MacdMiniHistogram histograms={snap.recentMacdHistograms} />
+                    </div>
+                  )}
+
+                  {/* Action Button */}
+                  {isThisCardRunning ? (
+                    <button
+                      type="button"
+                      onClick={onStopNormalBot}
+                      className={`w-full py-1.5 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between gap-2 cursor-pointer transition-colors shadow-xs ${
+                        normalBotWaitingForEntry
+                          ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                          : 'bg-rose-600 hover:bg-rose-500 text-rose-50'
+                      }`}
+                    >
+                      <span className="truncate">
+                        {normalBotWaitingForEntry
+                          ? normalBotEntryStatus || 'Waiting for 10s candle finish...'
+                          : `Trading continuous ($${normalBotStake.toFixed(2)} · TP $${takeProfit})`}
+                      </span>
+                      <span className="underline shrink-0">Stop</span>
+                    </button>
+                  ) : category === 'only_up' ? (
+                    snap.isMacdGoodMarket ? (
                       <button
                         type="button"
-                        onClick={onStopNormalBot}
-                        className={`w-full py-2.5 px-4 rounded-full text-xs sm:text-sm font-bold flex items-center justify-between gap-2 cursor-pointer transition-colors shadow-xs ${
-                          normalBotWaitingForEntry
-                            ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                            : 'bg-rose-600 hover:bg-rose-500 text-rose-50'
-                        }`}
+                        onClick={() => {
+                          setChartMarket(snap.market);
+                          onRunSignalOnNormalBot({
+                            category,
+                            market: snap.market,
+                            contractType: 'ONLY_UP',
+                            prediction: 0,
+                            signalEntryTrigger: 'only_up_macd_candle_10s',
+                            entryConfirmedNow: Boolean(snap.is10sEntryActive),
+                            stake,
+                            ticks,
+                            martingale,
+                            takeProfit,
+                            stopLoss,
+                            signalLabel: snap.signalLabel,
+                            signalTone: 'emerald',
+                            entryConfidencePct: snap.entryConfidencePct,
+                            payoutMultiplier: snap.payoutMultiplier,
+                            distributionSubtext: snap.distributionSubtext,
+                            patternSummary: snap.patternSummary,
+                          });
+                        }}
+                        className="w-full py-1.5 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between cursor-pointer transition-all shadow-sm active:scale-[0.99] bg-blue-600 hover:bg-blue-500 text-white border border-blue-500"
                       >
-                        <span className="truncate">
-                          {normalBotWaitingForEntry
-                            ? normalBotEntryStatus || 'Waiting for 10s candle finish...'
-                            : `Trading continuous ($${normalBotStake.toFixed(2)} · TP $${takeProfit})`}
+                        <span className="flex items-center gap-1.5">
+                          <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                          <span>RUN ONLY UP BOT</span>
                         </span>
-                        <span className="underline shrink-0">Stop</span>
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-blue-100 font-mono">
+                          {snap.is10sEntryActive
+                            ? `⚡ 10s Window Active (${formatTradingViewCountdown(snap.candleSecondsLeft ?? 10)}) · Fires Now`
+                            : `Armed · Enters ≤10s Finish (${formatTradingViewCountdown(snap.candleSecondsLeft ?? 60)})`}
+                        </span>
                       </button>
-                    ) : category === 'only_up' ? (
-                      snap.isMacdGoodMarket ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setChartMarket(snap.market);
-                            onRunSignalOnNormalBot({
-                              category,
-                              market: snap.market,
-                              contractType: 'ONLY_UP',
-                              prediction: 0,
-                              signalEntryTrigger: 'only_up_macd_candle_10s',
-                              entryConfirmedNow: Boolean(snap.is10sEntryActive),
-                              stake,
-                              ticks,
-                              martingale,
-                              takeProfit,
-                              stopLoss,
-                              signalLabel: snap.signalLabel,
-                              signalTone: 'emerald',
-                              entryConfidencePct: snap.entryConfidencePct,
-                              payoutMultiplier: snap.payoutMultiplier,
-                              distributionSubtext: snap.distributionSubtext,
-                              patternSummary: snap.patternSummary,
-                            });
-                          }}
-                          className="w-full py-2.5 px-4 rounded-full text-xs sm:text-sm font-bold flex items-center justify-between cursor-pointer transition-all shadow-md active:scale-[0.99] bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40"
+                    ) : snap.macdHistogramState === 'long_dark_red' ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-1.5 px-3 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-between cursor-not-allowed border bg-rose-50 text-rose-700 border-rose-200"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Square className="w-3.5 h-3.5 opacity-60 shrink-0" />
+                          <span>NO TRADE · Long Dark Red</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-rose-500">
+                          Falling momentum · Ineligible
+                        </span>
+                      </button>
+                    ) : snap.macdHistogramState === 'faded_green' ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-1.5 px-3 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-between cursor-not-allowed border bg-amber-50 text-amber-700 border-amber-200"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Square className="w-3.5 h-3.5 opacity-60 shrink-0" />
+                          <span>NO TRADE · Faded Green</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-amber-600">
+                          Declining momentum · Ineligible
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="w-full py-1.5 px-3 rounded-xl text-xs sm:text-sm font-semibold flex items-center justify-between cursor-not-allowed border bg-blue-50 text-blue-700 border-blue-200"
+                      >
+                        <span>Awaiting Faded Red or Short Dark Green MACD</span>
+                        <span className="text-[10px] font-mono text-blue-600">{formatTradingViewCountdown(snap.candleSecondsLeft ?? 60)} left</span>
+                      </button>
+                    )
+                  ) : (() => {
+                    const is5mStrategy = category === 'high_low_tick' || category === 'only_up_down';
+                    const timingMode = getEntryTimingMode(snap.market.id);
+                    const isUserImmediate = is5mStrategy ? timingMode === 'user_click' : snap.signalEntryTrigger === 'immediate';
+                    const effectiveTrigger: SignalEntryTrigger = isUserImmediate ? 'immediate' : snap.signalEntryTrigger;
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setChartMarket(snap.market);
+                          onRunSignalOnNormalBot({
+                            category,
+                            market: snap.market,
+                            contractType: snap.contractType,
+                            prediction: snap.prediction,
+                            signalEntryTrigger: effectiveTrigger,
+                            entryConfirmedNow: isUserImmediate || snap.entryConfirmedNow,
+                            stake,
+                            ticks,
+                            martingale,
+                            takeProfit,
+                            stopLoss,
+                            signalLabel: snap.signalLabel,
+                            signalTone: snap.signalTone,
+                            entryConfidencePct: snap.entryConfidencePct,
+                            payoutMultiplier: snap.payoutMultiplier,
+                            distributionSubtext: snap.distributionSubtext,
+                            patternSummary: snap.patternSummary,
+                            entryTargetDigit: snap.evenOddEntryDigit,
+                            evenOddStrategyId: snap.evenOddStrategyId,
+                          });
+                        }}
+                        className="w-full py-1.5 px-3 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-between cursor-pointer transition-all shadow-sm active:scale-[0.99] bg-blue-600 hover:bg-blue-500 text-white border border-blue-500"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+                          <span>
+                            {isUserImmediate
+                              ? 'Start Trade Now'
+                              : category === 'even_odd' && snap.evenOddStrategyId
+                              ? `RUN ${snap.contractType} (${snap.evenOddStrategyId})`
+                              : 'Run this bot'}
+                          </span>
+                        </span>
+                        <span className="text-[10px] sm:text-[11px] font-semibold text-blue-100 font-mono">
+                          {isUserImmediate
+                            ? 'Immediate Execution'
+                            : snap.entryConfirmedNow
+                            ? '⚡ Fires Now'
+                            : category === 'even_odd' && snap.evenOddEntryRuleText
+                            ? snap.evenOddEntryRuleText
+                            : 'Waits for Confirmation'}
+                        </span>
+                      </button>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Compact Recent Ticks / Directions Strip */}
+              <div className="flex items-center gap-1 overflow-x-auto pt-1 border-t border-slate-100">
+                {category === 'only_up_down' || category === 'high_low_tick' || category === 'only_up'
+                  ? (snap.recentDirections ?? []).slice(-10).map((dir, idx) => {
+                      const symbol = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '·';
+                      const tileColorClass =
+                        dir === 'up'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                          : dir === 'down'
+                          ? 'bg-rose-50 border-rose-300 text-rose-700'
+                          : 'bg-slate-100 border-slate-200 text-slate-500';
+                      return (
+                        <span
+                          key={`${category}-${snap.market.id}-dir-${idx}`}
+                          title={
+                            dir === 'up'
+                              ? 'Rise tick (▲)'
+                              : dir === 'down'
+                              ? 'Fall tick (▼)'
+                              : 'Flat tick'
+                          }
+                          className={`w-5 h-5 rounded border font-mono tabular-nums text-[9px] font-bold flex items-center justify-center shrink-0 ${tileColorClass}`}
                         >
-                          <span className="flex items-center gap-1.5">
-                            <Play className="w-3.5 h-3.5 fill-current" />
-                            <span>RUN ONLY UP BOT</span>
-                          </span>
-                          <span className="text-[11px] font-medium opacity-90 font-mono">
-                            {snap.is10sEntryActive
-                              ? `⚡ 10s Window Active (${formatTradingViewCountdown(snap.candleSecondsLeft ?? 10)}) · Fires Now`
-                              : `Armed · Enters at ≤10s Finish (${formatTradingViewCountdown(snap.candleSecondsLeft ?? 60)} left)`}
-                          </span>
-                        </button>
-                      ) : snap.macdHistogramState === 'faded_green' ? (
-                        <button
-                          type="button"
-                          disabled
-                          className="w-full py-2.5 px-4 rounded-full text-xs sm:text-sm font-semibold flex items-center justify-between cursor-not-allowed border bg-amber-950/30 text-amber-400 border-amber-800/50"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <Square className="w-3.5 h-3.5 opacity-60" />
-                            <span>NO TRADE · Faded Green Histogram</span>
-                          </span>
-                          <span className="text-[11px] font-mono text-amber-300/80">
-                            Declining momentum · Ineligible
-                          </span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled
-                          className="w-full py-2.5 px-4 rounded-full text-xs sm:text-sm font-semibold flex items-center justify-between cursor-not-allowed border bg-slate-800/35 text-slate-500 border-slate-700/60"
-                        >
-                          <span>Awaiting Good MACD Setup</span>
-                          <span className="text-[11px] font-mono">{formatTradingViewCountdown(snap.candleSecondsLeft ?? 60)} left in candle</span>
-                        </button>
-                      )
-                    ) : (() => {
-                      const is5mStrategy = category === 'high_low_tick' || category === 'only_up_down';
-                      const timingMode = getEntryTimingMode(snap.market.id);
-                      const isUserImmediate = is5mStrategy ? timingMode === 'user_click' : snap.signalEntryTrigger === 'immediate';
-                      const effectiveTrigger: SignalEntryTrigger = isUserImmediate ? 'immediate' : snap.signalEntryTrigger;
+                          {symbol}
+                        </span>
+                      );
+                    })
+                  : snap.recentDigits.slice(-10).map((d, idx) => {
+                      const isPositiveTile =
+                        category === 'even_odd'
+                          ? displayContractType === 'EVEN'
+                            ? d % 2 === 0
+                            : d % 2 !== 0
+                          : category === 'over_under'
+                          ? displayContractType === 'OVER'
+                            ? d > displayPrediction
+                            : d < displayPrediction
+                          : d === (showScanningState ? snap.hotDigit : displayPrediction);
 
                       return (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setChartMarket(snap.market);
-                            onRunSignalOnNormalBot({
-                              category,
-                              market: snap.market,
-                              contractType: snap.contractType,
-                              prediction: snap.prediction,
-                              signalEntryTrigger: effectiveTrigger,
-                              entryConfirmedNow: isUserImmediate || snap.entryConfirmedNow,
-                              stake,
-                              ticks,
-                              martingale,
-                              takeProfit,
-                              stopLoss,
-                              signalLabel: snap.signalLabel,
-                              signalTone: snap.signalTone,
-                              entryConfidencePct: snap.entryConfidencePct,
-                              payoutMultiplier: snap.payoutMultiplier,
-                              distributionSubtext: snap.distributionSubtext,
-                              patternSummary: snap.patternSummary,
-                            });
-                          }}
-                          className={`w-full py-2.5 px-4 rounded-full text-xs sm:text-sm font-bold flex items-center justify-between cursor-pointer transition-all shadow-xs active:scale-[0.99] ${
-                            isUserImmediate
-                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40'
-                              : 'bg-[#2563eb] hover:bg-[#1d4ed8] text-sky-50'
+                        <span
+                          key={`${category}-${snap.market.id}-d-${idx}`}
+                          className={`w-5 h-5 rounded border font-mono tabular-nums text-[9px] font-bold flex items-center justify-center shrink-0 ${
+                            isPositiveTile
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
+                              : 'bg-slate-100 border-slate-200 text-slate-600'
                           }`}
                         >
-                          <span className="flex items-center gap-1.5">
-                            {isUserImmediate && <Play className="w-3.5 h-3.5 fill-current" />}
-                            <span>{isUserImmediate ? 'Start Trade Now' : 'Run this signal'}</span>
-                          </span>
-                          <span className="text-[11px] font-medium opacity-90">
-                            {isUserImmediate
-                              ? 'User Decision · Immediate Execution'
-                              : snap.contractType === 'HIGH_TICK'
-                              ? 'Entry: 3 Rising (▲▲▲) → Continuous'
-                              : snap.contractType === 'LOW_TICK'
-                              ? 'Entry: 3 Falling (▼▼▼) → Continuous'
-                              : snap.contractType === 'ONLY_UP'
-                              ? 'Entry: ≥2 Fall → 1 Rise'
-                              : snap.contractType === 'ONLY_DOWN'
-                              ? 'Entry: ≥2 Rise → 1 Fall'
-                              : 'Waits for entry'}
-                          </span>
-                        </button>
+                          {d}
+                        </span>
                       );
-                    })()}
-                  </div>
-                )}
-
-                <div className="flex items-center gap-1.5 overflow-x-auto pt-1 pb-0.5">
-                  {category === 'only_up_down' || category === 'high_low_tick' || category === 'only_up'
-                    ? (snap.recentDirections ?? []).map((dir, idx) => {
-                        const symbol = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '·';
-                        const tileColorClass =
-                          dir === 'up'
-                            ? 'bg-emerald-50 border-emerald-400 text-emerald-700'
-                            : dir === 'down'
-                            ? 'bg-red-50 border-red-400 text-red-600'
-                            : 'bg-slate-100 border-slate-300 text-slate-500';
-                        return (
-                          <span
-                            key={`${category}-${snap.market.id}-dir-${idx}`}
-                            title={
-                              dir === 'up'
-                                ? 'Rise tick (▲)'
-                                : dir === 'down'
-                                ? 'Fall tick (▼)'
-                                : 'Flat tick'
-                            }
-                            className={`w-6 h-6 rounded-md border font-mono tabular-nums text-[10px] font-bold flex items-center justify-center shrink-0 ${tileColorClass}`}
-                          >
-                            {symbol}
-                          </span>
-                        );
-                      })
-                    : snap.recentDigits.map((d, idx) => {
-                        const isPositiveTile =
-                          category === 'even_odd'
-                            ? displayContractType === 'EVEN'
-                              ? d % 2 === 0
-                              : d % 2 !== 0
-                            : category === 'over_under'
-                            ? displayContractType === 'OVER'
-                              ? d > displayPrediction
-                              : d < displayPrediction
-                            : d === (showScanningState ? snap.hotDigit : displayPrediction);
-
-                        return (
-                          <span
-                            key={`${category}-${snap.market.id}-d-${idx}`}
-                            className={`w-6 h-6 rounded-md border font-mono tabular-nums text-[11px] font-bold flex items-center justify-center shrink-0 ${
-                              isPositiveTile
-                                ? 'bg-emerald-50 border-emerald-300 text-emerald-700'
-                                : 'bg-pink-50 border-pink-300 text-pink-700'
-                            }`}
-                          >
-                            {d}
-                          </span>
-                        );
-                      })}
-                </div>
+                    })}
               </div>
             </div>
           );
