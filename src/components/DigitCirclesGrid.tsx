@@ -43,39 +43,37 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
     let bgAndText = '';
     switch (stat?.rank) {
       case 'most':
-        bgAndText = 'bg-[#2563eb] text-white';
+        bgAndText = 'bg-[#2563eb] text-white border border-blue-600';
         break;
       case 'second-most':
-        bgAndText = 'bg-[#10b981] text-white';
+        bgAndText = 'bg-[#10b981] text-white border border-emerald-600';
         break;
       case 'second-least':
-        bgAndText = 'bg-[#f59e0b] text-white';
+        bgAndText = 'bg-[#f59e0b] text-white border border-amber-500';
         break;
       case 'least':
-        bgAndText = 'bg-[#ef4444] text-white';
+        bgAndText = 'bg-[#ef4444] text-white border border-rose-500';
         break;
       default:
-        bgAndText = isLight
-          ? 'bg-white hover:bg-slate-50 text-slate-900'
-          : 'bg-white hover:bg-slate-100 text-slate-950';
+        bgAndText = 'bg-white hover:bg-slate-50 text-slate-900 border border-slate-200/90';
     }
 
     if (isCompact) {
       if (isSelected) {
-        return `${base} ${bgAndText} border-2 border-purple-300 ring-2 sm:ring-[3px] ring-[#a855f7] shadow-[0_0_14px_rgba(168,85,247,0.95)] scale-105 z-20`;
+        return `${base} ${bgAndText} border-2 border-purple-500 ring-2 ring-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.35)] scale-105 z-20`;
       }
       if (isTarget) {
-        return `${base} ${bgAndText} border-2 border-sky-400 ring-2 ring-sky-400/90 shadow-[0_0_10px_rgba(56,189,248,0.65)] z-10`;
+        return `${base} ${bgAndText} border-2 border-sky-500 ring-2 ring-sky-200 shadow-[0_0_8px_rgba(56,189,248,0.35)] z-10`;
       }
-      return `${base} ${bgAndText} border border-black/80 ring-1 ring-black/30 shadow-xs`;
+      return `${base} ${bgAndText} shadow-xs`;
     }
 
     if (isSelected) {
-      // Prominent PURPLE ring for the last digit ticker on digit frequency
-      return `${base} ${bgAndText} border-2 border-purple-400 ring-4 ring-[#a855f7] ring-offset-2 ring-offset-[#090d16] shadow-[0_0_24px_rgba(168,85,247,0.95)] scale-110 z-20`;
+      // Prominent PURPLE ring for the live ticker
+      return `${base} ${bgAndText} border-2 border-purple-500 ring-4 ring-purple-300/80 shadow-[0_0_16px_rgba(168,85,247,0.4)] scale-110 z-20`;
     }
 
-    return `${base} ${bgAndText} border-2 border-black ring-1 ring-black/40 shadow-md`;
+    return `${base} ${bgAndText} shadow-xs`;
   };
 
   const renderCircle = (d: number, mode: 'grid' | 'horizontal' | 'compact' = 'grid') => {
@@ -92,17 +90,12 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
     const isSpecialRank = stat.rank !== 'neutral';
     const isNeutralWhite = !isSpecialRank;
 
-    // In dark mode: if neutral, text is dark on white circle; if special rank, text is white
     const digitTextColor = isNeutralWhite
-      ? isLight
-        ? 'text-slate-900 font-black'
-        : 'text-slate-950 font-black'
+      ? 'text-slate-900 font-black'
       : 'text-white font-black';
 
     const percentTextColor = isNeutralWhite
-      ? isLight
-        ? 'text-slate-600 font-bold'
-        : 'text-slate-700 font-bold'
+      ? 'text-slate-600 font-bold'
       : 'text-white/95 font-semibold';
 
     if (mode === 'compact') {
@@ -122,7 +115,7 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
             }${isTarget ? ' • Target Search Digit' : ''}`}
           >
             {isTarget && (
-              <span className="absolute -top-1 -right-0.5 w-3.5 h-3.5 rounded-full bg-sky-500 text-white text-[7px] font-mono font-black flex items-center justify-center border border-[#0f172a] shadow-xs z-30">
+              <span className="absolute -top-1 -right-0.5 w-3.5 h-3.5 rounded-full bg-sky-500 text-white text-[7px] font-mono font-black flex items-center justify-center border border-white shadow-xs z-30">
                 ✓
               </span>
             )}
@@ -186,53 +179,55 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
   };
 
   const renderLegend = () => (
-    <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-xs text-slate-300">
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#111827] border border-slate-700">
-        <span className="w-2.5 h-2.5 rounded-full bg-[#2563eb] border border-black ring-1 ring-black"></span>
+    <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-xs text-slate-700">
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
+        <span className="w-2.5 h-2.5 rounded-full bg-[#2563eb]"></span>
         <span>Most</span>
       </div>
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#111827] border border-slate-700">
-        <span className="w-2.5 h-2.5 rounded-full bg-[#10b981] border border-black ring-1 ring-black"></span>
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
+        <span className="w-2.5 h-2.5 rounded-full bg-[#10b981]"></span>
         <span>2nd most</span>
       </div>
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#111827] border border-slate-700">
-        <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b] border border-black ring-1 ring-black"></span>
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
+        <span className="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></span>
         <span>2nd least</span>
       </div>
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#111827] border border-slate-700">
-        <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444] border border-black ring-1 ring-black"></span>
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
+        <span className="w-2.5 h-2.5 rounded-full bg-[#ef4444]"></span>
         <span>Least</span>
       </div>
-      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-slate-700">
-        <span className="w-2.5 h-2.5 rounded-full bg-white border border-black ring-1 ring-black"></span>
+      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-200">
+        <span className="w-2.5 h-2.5 rounded-full bg-white border border-slate-300"></span>
         <span>Neutral</span>
       </div>
     </div>
   );
 
-  // 0. COMPACT SINGLE-LINE LAYOUT (Sized to fit inside Entry Bot & EvenOdd Bot cards)
+  // 0. COMPACT SINGLE-LINE LAYOUT (Sized to fit inside all bot cards with clean bright styling)
   if (layout === 'compact') {
     return (
-      <div className="w-full bg-[#0f172a] border border-slate-800 rounded-xl px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-sm flex flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] sm:text-[11px] pb-1 border-b border-slate-800/90">
+      <div className="w-full bg-slate-50 border border-slate-200/90 rounded-xl px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-xs flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] sm:text-[11px] pb-1 border-b border-slate-200">
           <div className="flex items-center gap-2 font-mono tabular-nums">
-            <span className="font-sans font-bold text-white text-xs tracking-tight">
+            <span className="font-sans font-bold text-slate-900 text-xs tracking-tight">
               Digits Analysis
             </span>
-            <span className="text-slate-500">·</span>
-            <span className="text-purple-300 font-semibold">
+            <span className="text-slate-400">·</span>
+            <span className="text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded font-semibold">
               Ticker: {activeDigit !== undefined && activeDigit !== null ? `#${activeDigit}` : '—'}
             </span>
             {targetDigit !== undefined && targetDigit !== null && (
               <>
-                <span className="text-slate-500">·</span>
-                <span className="text-sky-300 font-semibold">Search: #{targetDigit}</span>
+                <span className="text-slate-400">·</span>
+                <span className="text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded font-semibold">
+                  Search: #{targetDigit}
+                </span>
               </>
             )}
           </div>
 
           {showLegend && (
-            <div className="flex items-center gap-2 sm:gap-2.5 text-[9px] sm:text-[10px] text-slate-300">
+            <div className="flex items-center gap-2 sm:gap-2.5 text-[9px] sm:text-[10px] text-slate-600 font-medium">
               <span className="inline-flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-[#2563eb]" />
                 <span>Most</span>
@@ -264,14 +259,14 @@ export const DigitCirclesGrid: React.FC<DigitCirclesGridProps> = ({
   // 1. HORIZONTAL LAYOUT (Straight Horizontal Line)
   if (layout === 'horizontal') {
     return (
-      <div className="w-full bg-[#111827] border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-lg flex flex-col gap-3">
+      <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 sm:p-4 shadow-sm flex flex-col gap-3">
         {/* Header Bar */}
-        <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-800/80">
+        <div className="flex items-center justify-between text-xs pb-1 border-b border-slate-200">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-white text-sm tracking-tight flex items-center gap-1.5">
+            <span className="font-bold text-slate-900 text-sm tracking-tight flex items-center gap-1.5">
               <span>Digit Frequency Analysis</span>
             </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-[#00e599] font-semibold border border-slate-700/80">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 font-semibold border border-slate-300">
               0 - 9
             </span>
           </div>

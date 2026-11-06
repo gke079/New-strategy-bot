@@ -85,6 +85,17 @@ export class NormalBotExecutor {
   }
 
   public updateConfig(newConfig: Partial<NormalBotConfig>) {
+    // Risk management: stop bot if market changes before initial entry is found
+    if (
+      this.isRunning &&
+      newConfig.marketId &&
+      newConfig.marketId !== this.config.marketId &&
+      this.isWaitingForInitialEntry()
+    ) {
+      this.stop('Risk Management: Market changed before initial entry was found');
+      return;
+    }
+
     this.config = { ...this.config, ...newConfig };
     if (!this.isRunning) {
       if (newConfig.initialStake !== undefined) {
@@ -715,6 +726,16 @@ export class NormalBotExecutor {
   // Evaluates every incoming tick
   public evaluateTick(tick: Tick, allTicks: Tick[], currentMarketId: string) {
     if (!this.isRunning || this.isPaused) return;
+
+    // Risk management: stop bot if market changed before entry was found
+    if (
+      currentMarketId &&
+      currentMarketId !== this.config.marketId &&
+      this.isWaitingForInitialEntry()
+    ) {
+      this.stop('Risk Management: Market changed before initial entry was found');
+      return;
+    }
 
     this.postStartTicks = [...this.postStartTicks.slice(-49), tick];
 

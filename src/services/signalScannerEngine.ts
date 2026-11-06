@@ -1286,6 +1286,50 @@ export class MultiMarketSignalScanner {
       }
     }
 
+    // Helper: Verify there are NO competing digits in terms of percentages on the opposite market
+    const checkOppositeCompetition = (favSide: 'EVEN' | 'ODD') => {
+      const favDigits = favSide === 'EVEN' ? [0, 2, 4, 6, 8] : [1, 3, 5, 7, 9];
+      const oppDigits = favSide === 'EVEN' ? [1, 3, 5, 7, 9] : [0, 2, 4, 6, 8];
+
+      const favPcts = favDigits.map((d) => ({ digit: d, pct: pcts[d] }));
+      const oppPcts = oppDigits.map((d) => ({ digit: d, pct: pcts[d] }));
+
+      const maxFavPct = Math.max(...favPcts.map((x) => x.pct));
+      const maxOppPct = Math.max(...oppPcts.map((x) => x.pct));
+
+      // 1. If any digit on opposite market has percentage >= maxFavPct, it directly competes with or exceeds favored peak
+      if (maxOppPct >= maxFavPct) {
+        const competingDigits = oppPcts.filter((o) => o.pct >= maxFavPct);
+        return {
+          hasCompetition: true,
+          competingInfo: `Opposite #${competingDigits.map((d) => `${d.digit} (${d.pct}%)`).join(', ')} competes with favored peak (${maxFavPct}%)`,
+        };
+      }
+
+      // 2. If any digit on opposite market has the exact same percentage as any favored digit with >= 10%
+      const competingTies: string[] = [];
+      for (const opp of oppPcts) {
+        if (opp.pct >= 10) {
+          const matchedFav = favPcts.find((f) => f.pct === opp.pct);
+          if (matchedFav) {
+            competingTies.push(`Opp #${opp.digit} ties Fav #${matchedFav.digit} (${opp.pct}%)`);
+          }
+        }
+      }
+
+      if (competingTies.length > 0) {
+        return {
+          hasCompetition: true,
+          competingInfo: `Opposite competing percentage: ${competingTies.join(', ')}`,
+        };
+      }
+
+      return { hasCompetition: false, competingInfo: '' };
+    };
+
+    const evenComp = checkOppositeCompetition('EVEN');
+    const oddComp = checkOppositeCompetition('ODD');
+
     interface StrategyEvaluation {
       strategyId: 'S1' | 'S2' | 'S3';
       favoredSide: 'EVEN' | 'ODD';
@@ -1304,9 +1348,10 @@ export class MultiMarketSignalScanner {
 
     // -------------------------------------------------------------------------
     // S1: Green & Red on same market, Blue on opposite market. Green bar < 12%.
+    // Must have NO competing digit in terms of percentages on opposite market.
     // Entry digit: Blue bar (second most appearing digit).
     // -------------------------------------------------------------------------
-    if (isGreenEven && isRedEven && !isBlueEven && greenPct < 12) {
+    if (isGreenEven && isRedEven && !isBlueEven && greenPct < 12 && !evenComp.hasCompetition) {
       matchedStrategies.push({
         strategyId: 'S1',
         favoredSide: 'EVEN',
@@ -1318,7 +1363,7 @@ export class MultiMarketSignalScanner {
         confidencePct: Math.max(54, evenPct),
       });
     }
-    if (!isGreenEven && !isRedEven && isBlueEven && greenPct < 12) {
+    if (!isGreenEven && !isRedEven && isBlueEven && greenPct < 12 && !oddComp.hasCompetition) {
       matchedStrategies.push({
         strategyId: 'S1',
         favoredSide: 'ODD',
@@ -1333,9 +1378,16 @@ export class MultiMarketSignalScanner {
 
     // -------------------------------------------------------------------------
     // S2: All 3 movers on same market. Favored market has more digits >= 10%.
+    // Must have NO competing digit in terms of percentages on opposite market.
     // Entry: 2 consecutive opposite market digits.
     // -------------------------------------------------------------------------
-    if (isGreenEven && isBlueEven && isRedEven && evenDigitsGe10Count > oddDigitsGe10Count) {
+    if (
+      isGreenEven &&
+      isBlueEven &&
+      isRedEven &&
+      evenDigitsGe10Count > oddDigitsGe10Count &&
+      !evenComp.hasCompetition
+    ) {
       const is2Opp = parityDigits.length >= 2 && lastDigit % 2 !== 0 && prevDigit % 2 !== 0;
       matchedStrategies.push({
         strategyId: 'S2',
@@ -1348,7 +1400,13 @@ export class MultiMarketSignalScanner {
         confidencePct: Math.max(56, evenPct),
       });
     }
-    if (!isGreenEven && !isBlueEven && !isRedEven && oddDigitsGe10Count > evenDigitsGe10Count) {
+    if (
+      !isGreenEven &&
+      !isBlueEven &&
+      !isRedEven &&
+      oddDigitsGe10Count > evenDigitsGe10Count &&
+      !oddComp.hasCompetition
+    ) {
       const is2Opp = parityDigits.length >= 2 && lastDigit % 2 === 0 && prevDigit % 2 === 0;
       matchedStrategies.push({
         strategyId: 'S2',
@@ -1364,9 +1422,16 @@ export class MultiMarketSignalScanner {
 
     // -------------------------------------------------------------------------
     // S3: Green & Blue on same market, Red on opposite market. Favored market has more digits >= 10%.
+    // Must have NO competing digit in terms of percentages on opposite market.
     // Entry: Red bar digit appears followed by another opposite digit.
     // -------------------------------------------------------------------------
-    if (isGreenEven && isBlueEven && !isRedEven && evenDigitsGe10Count > oddDigitsGe10Count) {
+    if (
+      isGreenEven &&
+      isBlueEven &&
+      !isRedEven &&
+      evenDigitsGe10Count > oddDigitsGe10Count &&
+      !evenComp.hasCompetition
+    ) {
       const isS3Entry = parityDigits.length >= 2 && prevDigit === redDigit && lastDigit % 2 !== 0;
       matchedStrategies.push({
         strategyId: 'S3',
@@ -1379,7 +1444,13 @@ export class MultiMarketSignalScanner {
         confidencePct: Math.max(58, evenPct),
       });
     }
-    if (!isGreenEven && !isBlueEven && isRedEven && oddDigitsGe10Count > evenDigitsGe10Count) {
+    if (
+      !isGreenEven &&
+      !isBlueEven &&
+      isRedEven &&
+      oddDigitsGe10Count > evenDigitsGe10Count &&
+      !oddComp.hasCompetition
+    ) {
       const isS3Entry = parityDigits.length >= 2 && prevDigit === redDigit && lastDigit % 2 === 0;
       matchedStrategies.push({
         strategyId: 'S3',
@@ -1407,32 +1478,52 @@ export class MultiMarketSignalScanner {
 
     let scanStatusNote = '';
     if (hasMatch) {
-      scanStatusNote = `${match.strategyLabel} Active (${match.favoredSide}) · ${match.entryRuleText}`;
+      scanStatusNote = `${match.strategyLabel} Active (${match.favoredSide}) · ${match.entryRuleText} · No competing opp digits`;
     } else if (strategyFilter === 'S1') {
       if (isGreenEven === isRedEven && isGreenEven !== isBlueEven) {
-        scanStatusNote =
-          greenPct >= 12
-            ? `S1 Mover positions met (${isGreenEven ? 'Even' : 'Odd'}) · Awaiting Green <12% (current ${greenPct}%)`
-            : `S1 setup scanning...`;
+        const side = isGreenEven ? 'Even' : 'Odd';
+        const comp = isGreenEven ? evenComp : oddComp;
+        if (comp.hasCompetition) {
+          scanStatusNote = `S1 (${side}) Paused · Competing digit on opposite market (${comp.competingInfo})`;
+        } else if (greenPct >= 12) {
+          scanStatusNote = `S1 Mover positions met (${side}) · Awaiting Green <12% (current ${greenPct}%)`;
+        } else {
+          scanStatusNote = `S1 setup scanning...`;
+        }
       } else {
         scanStatusNote = `Awaiting S1 Movers: Green & Red same, Blue opp (G:${isGreenEven ? 'E' : 'O'}, B:${isBlueEven ? 'E' : 'O'}, R:${isRedEven ? 'E' : 'O'})`;
       }
     } else if (strategyFilter === 'S2') {
       if (isGreenEven === isBlueEven && isBlueEven === isRedEven) {
         const side = isGreenEven ? 'Even' : 'Odd';
-        scanStatusNote = `S2 Movers all on ${side} · Awaiting ${side} dominancy (≥10%: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count})`;
+        const comp = isGreenEven ? evenComp : oddComp;
+        if (comp.hasCompetition) {
+          scanStatusNote = `S2 (${side}) Paused · Competing digit on opposite market (${comp.competingInfo})`;
+        } else {
+          scanStatusNote = `S2 Movers all on ${side} · Awaiting ${side} dominancy (≥10%: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count})`;
+        }
       } else {
         scanStatusNote = `Awaiting S2 Movers: All 3 on same market (G:${isGreenEven ? 'E' : 'O'}, B:${isBlueEven ? 'E' : 'O'}, R:${isRedEven ? 'E' : 'O'})`;
       }
     } else if (strategyFilter === 'S3') {
       if (isGreenEven === isBlueEven && isGreenEven !== isRedEven) {
         const side = isGreenEven ? 'Even' : 'Odd';
-        scanStatusNote = `S3 Movers on ${side} (Red opp) · Awaiting ${side} dominancy (≥10%: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count})`;
+        const comp = isGreenEven ? evenComp : oddComp;
+        if (comp.hasCompetition) {
+          scanStatusNote = `S3 (${side}) Paused · Competing digit on opposite market (${comp.competingInfo})`;
+        } else {
+          scanStatusNote = `S3 Movers on ${side} (Red opp) · Awaiting ${side} dominancy (≥10%: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count})`;
+        }
       } else {
         scanStatusNote = `Awaiting S3 Movers: Green+Blue same, Red opp (G:${isGreenEven ? 'E' : 'O'}, B:${isBlueEven ? 'E' : 'O'}, R:${isRedEven ? 'E' : 'O'})`;
       }
     } else {
-      scanStatusNote = `Scanning S1, S2, S3 setups · Movers: G:${greenDigit}(${isGreenEven ? 'E' : 'O'} ${greenPct}%), B:${blueDigit}(${isBlueEven ? 'E' : 'O'}), R:${redDigit}(${isRedEven ? 'E' : 'O'}) · ≥10%: E(${evenDigitsGe10Count}) O(${oddDigitsGe10Count})`;
+      const activeComp = evenPct >= oddPct ? evenComp : oddComp;
+      if (activeComp.hasCompetition) {
+        scanStatusNote = `Even/Odd scanning · Filtered: Competing digit on opposite market (${activeComp.competingInfo})`;
+      } else {
+        scanStatusNote = `Scanning S1, S2, S3 setups · Movers: G:${greenDigit}(${isGreenEven ? 'E' : 'O'} ${greenPct}%), B:${blueDigit}(${isBlueEven ? 'E' : 'O'}), R:${redDigit}(${isRedEven ? 'E' : 'O'}) · No competing opp digits`;
+      }
     }
 
     const favoredSide: 'EVEN' | 'ODD' = match ? match.favoredSide : (evenPct >= oddPct ? 'EVEN' : 'ODD');
@@ -1448,9 +1539,10 @@ export class MultiMarketSignalScanner {
     const entryConfidencePct = match ? match.confidencePct : Math.max(evenPct, oddPct);
     const edgeDeltaPct = Math.max(0, entryConfidencePct - 50);
 
-    const distributionSubtext = `Movers: 🟢${greenDigit}(${isGreenEven ? 'E' : 'O'} ${greenPct}%) 🔵${blueDigit}(${isBlueEven ? 'E' : 'O'} ${bluePct}%) 🔴${redDigit}(${isRedEven ? 'E' : 'O'} ${redPct}%) · ≥10%: E(${evenDigitsGe10Count}) O(${oddDigitsGe10Count})`;
+    const favoredComp = favoredSide === 'EVEN' ? evenComp : oddComp;
+    const distributionSubtext = `Movers: 🟢${greenDigit}(${isGreenEven ? 'E' : 'O'} ${greenPct}%) 🔵${blueDigit}(${isBlueEven ? 'E' : 'O'} ${bluePct}%) 🔴${redDigit}(${isRedEven ? 'E' : 'O'} ${redPct}%) · ≥10%: E(${evenDigitsGe10Count}) O(${oddDigitsGe10Count}) · Competing: ${favoredComp.hasCompetition ? 'Yes (Blocked)' : 'None (Clear)'}`;
     const patternSummary = match
-      ? `${match.strategyLabel} · ${match.entryRuleText}`
+      ? `${match.strategyLabel} · ${match.entryRuleText} · Clean Distribution`
       : `Movers: G:${greenDigit} B:${blueDigit} R:${redDigit} · Dominancy: Even ${evenDigitsGe10Count} vs Odd ${oddDigitsGe10Count}`;
 
     return {

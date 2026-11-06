@@ -865,11 +865,35 @@ export default function App() {
 
   // Sync market changes automatically across live stream and bots
   const handleSelectMarket = (market: Market) => {
+    const isMarketChanged = market.id !== selectedMarketRef.current.id;
     selectedMarketRef.current = market;
     setSelectedMarket(market);
     if (engineRef.current) {
       engineRef.current.setMarket(market);
     }
+
+    if (isMarketChanged) {
+      // Risk Management: In case market changes before an entry is found, stop the bot
+      if (normalBotRunning && normalBotExecutorRef.current?.isWaitingForInitialEntry()) {
+        handleStopNormalBot('Risk Management: Market changed before initial entry was found');
+      }
+      if (evenOddBotRunning && evenOddBotExecutorRef.current?.getWaitingForCondition()) {
+        handleStopEvenOddBot('Risk Management: Market changed before entry condition was found');
+      }
+      if (entryBotRunning && entryBotExecutorRef.current?.getWaitingForCondition()) {
+        handleStopEntryBot('Risk Management: Market changed before entry pattern was found');
+      }
+      if (digitsBotRunning && digitsBotExecutorRef.current?.isWaitingForCondition()) {
+        handleStopDigitsBot('Risk Management: Market changed before entry condition was found');
+      }
+      if (chartsBotRunning && chartsBotExecutorRef.current?.isWaitingForCondition()) {
+        handleStopChartsBot('Risk Management: Market changed before entry condition was found');
+      }
+      if (activeSignal && activeSignal.marketId !== market.id && normalBotExecutorRef.current?.isWaitingForInitialEntry()) {
+        setActiveSignal(null);
+      }
+    }
+
     setDigitsBotConfig((prev) => {
       const next = { ...prev, marketId: market.id };
       digitsBotExecutorRef.current?.updateConfig(next);
@@ -971,9 +995,9 @@ export default function App() {
     }
   };
 
-  const handleStopDigitsBot = () => {
+  const handleStopDigitsBot = (reason?: string) => {
     if (digitsBotExecutorRef.current) {
-      digitsBotExecutorRef.current.stop('Manual Stop');
+      digitsBotExecutorRef.current.stop(reason || 'Manual Stop');
     }
   };
 
@@ -1031,9 +1055,9 @@ export default function App() {
     }
   };
 
-  const handleStopChartsBot = () => {
+  const handleStopChartsBot = (reason?: string) => {
     if (chartsBotExecutorRef.current) {
-      chartsBotExecutorRef.current.stop('Manual Stop');
+      chartsBotExecutorRef.current.stop(reason || 'Manual Stop');
     }
   };
 
@@ -1098,9 +1122,9 @@ export default function App() {
     }
   };
 
-  const handleStopNormalBot = () => {
+  const handleStopNormalBot = (reason?: string) => {
     if (normalBotExecutorRef.current) {
-      normalBotExecutorRef.current.stop('Manual Stop');
+      normalBotExecutorRef.current.stop(reason || 'Manual Stop');
     }
   };
 
@@ -1185,8 +1209,8 @@ export default function App() {
     entryBotExecutorRef.current?.start();
   };
 
-  const handleStopEntryBot = () => {
-    entryBotExecutorRef.current?.stop('Manual Stop');
+  const handleStopEntryBot = (reason?: string) => {
+    entryBotExecutorRef.current?.stop(reason || 'Manual Stop');
   };
 
   const handlePauseEntryBot = () => {
@@ -1247,8 +1271,8 @@ export default function App() {
     evenOddBotExecutorRef.current?.start();
   };
 
-  const handleStopEvenOddBot = () => {
-    evenOddBotExecutorRef.current?.stop('Manual Stop');
+  const handleStopEvenOddBot = (reason?: string) => {
+    evenOddBotExecutorRef.current?.stop(reason || 'Manual Stop');
   };
 
   const handlePauseEvenOddBot = () => {

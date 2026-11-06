@@ -51,6 +51,17 @@ export class EntryBotExecutor {
   }
 
   public updateConfig(newConfig: Partial<EntryBotConfig>) {
+    // Risk management: stop bot if market changes before entry is found
+    if (
+      this.isRunning &&
+      newConfig.marketId &&
+      newConfig.marketId !== this.config.marketId &&
+      this.waitingForSearch
+    ) {
+      this.stop('Risk Management: Market changed before entry was found');
+      return;
+    }
+
     this.config = { ...this.config, ...newConfig };
     if (!this.isRunning) {
       if (newConfig.initialStake !== undefined) {
@@ -113,6 +124,10 @@ export class EntryBotExecutor {
   }
 
   public getWaitingForSearch(): boolean {
+    return this.isRunning && this.waitingForSearch;
+  }
+
+  public getWaitingForCondition(): boolean {
     return this.isRunning && this.waitingForSearch;
   }
 
@@ -293,6 +308,16 @@ export class EntryBotExecutor {
 
   public evaluateTick(tick: Tick, allTicks: Tick[], currentMarketId: string) {
     if (!this.isRunning || this.isPaused) return;
+
+    // Risk management: stop bot if market changed before entry was found
+    if (
+      currentMarketId &&
+      currentMarketId !== this.config.marketId &&
+      this.waitingForSearch
+    ) {
+      this.stop('Risk Management: Market changed before entry was found');
+      return;
+    }
 
     if (this.checkTpSlAndStop()) return;
 

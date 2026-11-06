@@ -76,6 +76,17 @@ export class BotExecutor {
   }
 
   public updateConfig(newConfig: Partial<BotStrategyConfig>) {
+    // Risk management: stop bot if market changes before entry is found
+    if (
+      this.isRunning &&
+      newConfig.marketId &&
+      newConfig.marketId !== this.config.marketId &&
+      !this.analysisTriggered
+    ) {
+      this.stop('Risk Management: Market changed before entry was found');
+      return;
+    }
+
     const analysisParamChanged =
       (newConfig.entryCondition !== undefined &&
         newConfig.entryCondition !== this.config.entryCondition) ||
@@ -132,6 +143,10 @@ export class BotExecutor {
 
   public getIsPaused(): boolean {
     return this.isPaused;
+  }
+
+  public isWaitingForCondition(): boolean {
+    return this.isRunning && !this.analysisTriggered;
   }
 
   public start() {
@@ -516,6 +531,12 @@ export class BotExecutor {
     marketId: string
   ) {
     if (!this.isRunning || this.isPaused) return;
+
+    // Risk management: stop bot if market changed before entry was found
+    if (marketId && marketId !== this.config.marketId && !this.analysisTriggered) {
+      this.stop('Risk Management: Market changed before entry was found');
+      return;
+    }
 
     if (this.checkTpSlAndStop()) {
       return;

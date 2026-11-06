@@ -56,6 +56,17 @@ export class EvenOddBotExecutor {
   }
 
   public updateConfig(newConfig: Partial<EvenOddBotConfig>) {
+    // Risk management: stop bot if market changes before entry is found
+    if (
+      this.isRunning &&
+      newConfig.marketId &&
+      newConfig.marketId !== this.config.marketId &&
+      !this.conditionConfirmed
+    ) {
+      this.stop('Risk Management: Market changed before entry was found');
+      return;
+    }
+
     const strategyChanged =
       (newConfig.strategy && newConfig.strategy !== this.config.strategy) ||
       (newConfig.marketSide && newConfig.marketSide !== this.config.marketSide) ||
@@ -350,6 +361,34 @@ export class EvenOddBotExecutor {
 
     // 2. Evaluate Strategy Condition (S1 or S2) when not yet confirmed
     if (!this.conditionConfirmed) {
+      // Risk management: stop bot if market changed before entry was found
+      if (currentMarketId && currentMarketId !== this.config.marketId) {
+        this.stop('Risk Management: Market changed before entry was found');
+        return;
+      }
+
+      // Guard: No competing digit in terms of percentages on the opposite market
+      const favSide = this.config.marketSide;
+      const favDigits = favSide === 'EVEN' ? [0, 2, 4, 6, 8] : [1, 3, 5, 7, 9];
+      const oppDigits = favSide === 'EVEN' ? [1, 3, 5, 7, 9] : [0, 2, 4, 6, 8];
+      const favStats = (digitStats || []).filter((s) => favDigits.includes(s.digit));
+      const oppStats = (digitStats || []).filter((s) => oppDigits.includes(s.digit));
+      const maxFavPct = Math.max(...favStats.map((s) => s.percentage), 0);
+      const maxOppPct = Math.max(...oppStats.map((s) => s.percentage), 0);
+
+      const hasCompetingOpposite =
+        maxOppPct >= maxFavPct ||
+        oppStats.some((o) => o.percentage >= 10 && favStats.some((f) => f.percentage === o.percentage));
+
+      if (hasCompetingOpposite) {
+        this.notifyState(
+          true,
+          'Filtered',
+          `Paused: Competing digit on opposite ${favSide === 'EVEN' ? 'Odd' : 'Even'} market (${maxOppPct.toFixed(1)}% vs ${maxFavPct.toFixed(1)}%) · Risk Guard Active`
+        );
+        return;
+      }
+
       const { mostDigit, leastDigit } = this.resolveExtremaDigits(digitStats);
       const isEvenMarket = this.config.marketSide === 'EVEN';
       const isDigitEven = tick.lastDigit % 2 === 0;

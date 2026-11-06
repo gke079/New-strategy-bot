@@ -71,6 +71,17 @@ export class XmlBotExecutor {
   }
 
   public updateConfig(newConfig: Partial<XmlBotConfig>) {
+    // Risk management: stop bot if market changes before entry is found
+    if (
+      this.isRunning &&
+      newConfig.marketId &&
+      newConfig.marketId !== this.config.marketId &&
+      !this.entryConfirmed
+    ) {
+      this.stop('Risk Management: Market changed before entry was found');
+      return;
+    }
+
     const conditionChanged =
       (newConfig.contractType !== undefined && newConfig.contractType !== this.config.contractType) ||
       (newConfig.purchaseCondition !== undefined &&

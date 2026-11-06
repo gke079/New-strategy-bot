@@ -1082,9 +1082,14 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                   {category === 'even_odd' && (
                     <div className="p-2 rounded-lg bg-blue-50/50 border border-blue-100 flex flex-col gap-1.5 shadow-2xs">
                       <div className="flex items-center justify-between gap-1 flex-wrap">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-blue-600 text-white border border-blue-700">
-                          {snap.evenOddStrategyId || 'Strategy'} Qualified
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-blue-600 text-white border border-blue-700">
+                            {snap.evenOddStrategyId || 'Strategy'} Qualified
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            No Competing Opp % ✓
+                          </span>
+                        </div>
                         {snap.evenDigitsGe10Count !== undefined && snap.oddDigitsGe10Count !== undefined && (
                           <span className="text-[10px] font-mono font-bold text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
                             ≥10%: Even {snap.evenDigitsGe10Count}/5 · Odd {snap.oddDigitsGe10Count}/5
