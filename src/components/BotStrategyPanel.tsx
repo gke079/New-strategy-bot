@@ -1,12 +1,24 @@
 import React, { useState } from 'react';
 import { Play, Square, Pause, ChevronDown, RotateCcw, Zap, BookmarkCheck, Clock, Repeat, RefreshCw } from 'lucide-react';
-import { BotMetrics, BotStrategyConfig, EntryConditionType, StrategyExecutionMode, TradeContractType, Trade } from '../types';
+import {
+  BotMetrics,
+  BotStrategyConfig,
+  DigitStat,
+  EntryConditionType,
+  isContinuousDirectionalContract,
+  StrategyExecutionMode,
+  TradeContractType,
+  Trade,
+} from '../types';
 import { SYNTHETIC_MARKETS } from '../services/markets';
 import { NumericInput } from './NumericInput';
+import { DigitCirclesGrid } from './DigitCirclesGrid';
 
 interface BotStrategyPanelProps {
   config: BotStrategyConfig;
   onUpdateConfig: (newConfig: Partial<BotStrategyConfig>) => void;
+  digitStats?: DigitStat[];
+  currentDigit?: number;
   isRunning: boolean;
   isPaused?: boolean;
   onStart: () => void;
@@ -27,6 +39,8 @@ interface BotStrategyPanelProps {
 export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
   config,
   onUpdateConfig,
+  digitStats,
+  currentDigit,
   isRunning,
   isPaused = false,
   onStart,
@@ -46,6 +60,16 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
   const isLight = theme === 'light';
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [resetTradeFeedback, setResetTradeFeedback] = useState(false);
+
+  const isDirectionalContinuous = isContinuousDirectionalContract(config.tradeType);
+  const effectiveExecutionMode: StrategyExecutionMode = isDirectionalContinuous
+    ? 'continuous'
+    : config.executionMode || 'continuous';
+
+  const sessionPnl = metrics.sessionProfit ?? metrics.totalProfit;
+  const stopReason = metrics.lastStopReason || '';
+  const isTpReached = stopReason.toLowerCase().includes('take profit');
+  const isSlReached = stopReason.toLowerCase().includes('stop loss');
 
   const entryConditions: { value: EntryConditionType; label: string }[] = [
     { value: 'n_rising_then_falling', label: 'At least N rising ticks followed by 1 falling tick' },
@@ -76,14 +100,14 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       ],
     },
     {
-      category: 'Rise / Fall (Up / Down)',
+      category: 'Rise / Fall (Continuous after Entry)',
       options: [
         { value: 'RISE', label: 'Rise (Call)' },
         { value: 'FALL', label: 'Fall (Put)' },
       ],
     },
     {
-      category: 'Run Contracts',
+      category: 'Run Contracts (Continuous after Entry)',
       options: [
         { value: 'ONLY_UP', label: 'Only Up' },
         { value: 'ONLY_DOWN', label: 'Only Down' },
@@ -97,7 +121,7 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       ],
     },
     {
-      category: 'High / Low & Barriers',
+      category: 'High / Low & Barriers (Continuous after Entry)',
       options: [
         { value: 'HIGHER', label: 'Higher' },
         { value: 'LOWER', label: 'Lower' },
@@ -133,27 +157,21 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
   };
 
   const handleResetHistoryClick = () => {
-    onResetStats(); // Resets only current trade history and metrics, preserves all bot settings
+    onResetStats();
     setResetTradeFeedback(true);
     setTimeout(() => setResetTradeFeedback(false), 2000);
   };
 
   return (
     <div className="bg-white border border-neutral-300 text-neutral-900 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 w-full shadow-lg">
-      {/* Header with Robot Icon (White box header) */}
-      <div
-        className="border border-neutral-200 rounded-xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm bg-neutral-50 text-neutral-900 transition-colors"
-      >
+      {/* Header with Robot Icon */}
+      <div className="border border-neutral-200 rounded-xl p-3.5 sm:p-4 flex flex-wrap items-center justify-between gap-3 shadow-sm bg-neutral-50 text-neutral-900 transition-colors">
         <div className="flex items-center gap-2">
           <span className="text-xl">🤖</span>
-          <h2
-            className="text-base sm:text-lg font-bold tracking-tight flex items-center gap-2 text-neutral-950"
-          >
+          <h2 className="text-base sm:text-lg font-bold tracking-tight flex items-center gap-2 text-neutral-950">
             <span>Digits bot strategy</span>
             {tag && (
-              <span
-                className="text-[10px] uppercase font-mono px-2 py-0.5 rounded font-semibold border bg-neutral-200 text-neutral-800 border-neutral-300"
-              >
+              <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded font-semibold border bg-neutral-200 text-neutral-800 border-neutral-300">
                 {tag}
               </span>
             )}
@@ -161,11 +179,11 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </div>
 
         {/* Start / Stop & Reset trade history */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={handleResetHistoryClick}
-            className="px-3 py-1.5 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
-            title="Reset trade history and performance metrics (bot settings are preserved)"
+            className="px-3 py-1.5 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer whitespace-nowrap shrink-0"
+            title="Reset trade history and Session P/L (bot settings are preserved)"
           >
             <RotateCcw
               className={`w-3.5 h-3.5 text-sky-600 ${
@@ -175,14 +193,14 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
             <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
           </button>
 
-          {/* Speed Mode Toggle (Between Reset and Run) */}
+          {/* Speed Mode Toggle */}
           <button
             type="button"
             onClick={() => {
               const nextSpeed = config.botSpeed === 'fast' ? 'normal' : 'fast';
               onUpdateConfig({ botSpeed: nextSpeed });
             }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border active:scale-95 ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border active:scale-95 whitespace-nowrap shrink-0 ${
               config.botSpeed === 'fast'
                 ? 'bg-amber-400 hover:bg-amber-300 text-black border-amber-500 shadow-amber-500/20'
                 : 'bg-neutral-100 hover:bg-neutral-200 text-neutral-800 border-neutral-300'
@@ -190,7 +208,7 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
             title={
               config.botSpeed === 'fast'
                 ? 'Fast Mode: Trades after every tick'
-                : 'Normal Mode: Entry digit -> Skip 1 tick -> Exit tick'
+                : 'Normal Mode: Standard pacing'
             }
           >
             {config.botSpeed === 'fast' ? (
@@ -206,11 +224,10 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
             )}
           </button>
 
-          {/* Pause / Resume Button: Pure Black Pause & Pure Green Resume */}
           {isRunning && (onPause || onResume) && (
             <button
               onClick={isPaused ? onResume : onPause}
-              className={`px-3 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border active:scale-95 ${
+              className={`px-3 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-sm cursor-pointer border active:scale-95 whitespace-nowrap shrink-0 ${
                 isPaused
                   ? 'bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00]'
                   : 'bg-[#000000] hover:bg-neutral-900 text-white border border-neutral-800'
@@ -231,10 +248,9 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
             </button>
           )}
 
-          {/* Run / Stop Button: Pure Green Run & Pure Red Stop */}
           <button
             onClick={isRunning ? onStop : onStart}
-            className={`px-4 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md cursor-pointer border active:scale-95 ${
+            className={`px-4 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center gap-1.5 transition-all shadow-md cursor-pointer border active:scale-95 whitespace-nowrap shrink-0 ${
               isRunning
                 ? 'bg-[#FF0000] hover:bg-[#e60000] text-white border border-[#cc0000]'
                 : 'bg-[#00FF00] hover:bg-[#00e600] text-black border border-[#00cc00]'
@@ -254,6 +270,47 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Take Profit / Stop Loss Reached Notification Banner */}
+      {!isRunning && (isTpReached || isSlReached) && (
+        <div
+          className={`px-3.5 py-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs font-semibold ${
+            isTpReached
+              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+              : 'bg-rose-50 border-rose-300 text-rose-900'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isTpReached ? 'bg-emerald-600' : 'bg-rose-600'
+              }`}
+            />
+            <span>{stopReason}</span>
+          </div>
+          <span className="font-mono font-bold tabular-nums">
+            Session P/L: {sessionPnl >= 0 ? '+' : '-'}${Math.abs(sessionPnl).toFixed(2)}
+          </span>
+        </div>
+      )}
+
+      {/* Compact Straight-Line Digits Analysis Inside Strategy Bot */}
+      {digitStats && (
+        <DigitCirclesGrid
+          stats={digitStats}
+          activeDigit={currentDigit}
+          targetDigit={
+            ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(config.tradeType)
+              ? config.predictionDigit
+              : null
+          }
+          layout="compact"
+          theme={theme}
+          onSelectDigit={
+            !isRunning ? (d) => onUpdateConfig({ predictionDigit: d, xDigit: d }) : undefined
+          }
+        />
+      )}
 
       {/* Row: Market Selector & Strategy Name */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -335,7 +392,6 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
           <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         </div>
 
-        {/* Dynamic Contextual Helper Banner */}
         {config.entryCondition === 'n_rising_then_falling' && (
           <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
             <span>📈</span>
@@ -404,9 +460,16 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </div>
       </div>
 
-      {/* Post-Analysis Execution Mode: Analyse again after single trade vs Trade continuous after analysis */}
+      {/* Post-Analysis Execution Mode */}
       <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-semibold text-neutral-700">After analysis execution</label>
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-xs font-semibold text-neutral-700">After analysis execution</label>
+          {isDirectionalContinuous && (
+            <span className="text-[10px] font-mono font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+              Auto-Continuous for {config.tradeType.replace('_', ' ')}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {(
             [
@@ -419,21 +482,28 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               {
                 value: 'continuous' as StrategyExecutionMode,
                 label: 'Trade continuous after analysis',
-                desc: 'Analyses once, then trades continuously',
+                desc: 'Finds entry once, then trades continuously until TP/SL',
                 Icon: Repeat,
               },
             ]
           ).map(({ value, label, desc, Icon }) => {
-            const isActive = (config.executionMode || 'reanalyse') === value;
+            const isActive = effectiveExecutionMode === value;
+            const isDisabled = isDirectionalContinuous && value === 'reanalyse';
             return (
               <button
                 key={value}
                 type="button"
-                onClick={() => onUpdateConfig({ executionMode: value })}
-                className={`flex items-start gap-2 px-3 py-2 rounded-xl border text-left transition-all cursor-pointer ${
-                  isActive
-                    ? 'bg-[#00FFFF]/25 border-[#00b8b8] text-sky-950 ring-1 ring-[#00d4d4]'
-                    : 'bg-neutral-50 hover:bg-sky-50/60 border-neutral-300 text-neutral-700'
+                disabled={isDisabled}
+                onClick={() => {
+                  if (isDisabled) return;
+                  onUpdateConfig({ executionMode: value });
+                }}
+                className={`flex items-start gap-2 px-3 py-2 rounded-xl border text-left transition-all ${
+                  isDisabled
+                    ? 'opacity-45 cursor-not-allowed bg-neutral-100 border-neutral-200 text-neutral-400'
+                    : isActive
+                    ? 'bg-[#00FFFF]/25 border-[#00b8b8] text-sky-950 ring-1 ring-[#00d4d4] cursor-pointer'
+                    : 'bg-neutral-50 hover:bg-sky-50/60 border-neutral-300 text-neutral-700 cursor-pointer'
                 }`}
               >
                 <Icon
@@ -464,14 +534,27 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
                 const newType = e.target.value as TradeContractType;
                 let nextDuration = config.duration;
                 let nextDurationUnit = config.durationUnit;
-                if (newType === 'ONLY_UP' || newType === 'ONLY_DOWN' || newType === 'HIGH_TICK' || newType === 'LOW_TICK') {
+                let nextPred = config.predictionDigit;
+                if (newType === 'HIGH_TICK' || newType === 'LOW_TICK') {
                   nextDuration = 5;
+                  nextDurationUnit = 't';
+                  nextPred = nextPred >= 1 && nextPred <= 5 ? nextPred : 5;
+                } else if (newType === 'ONLY_UP' || newType === 'ONLY_DOWN') {
+                  nextDuration = 2;
                   nextDurationUnit = 't';
                 } else if (['OVER', 'UNDER', 'EVEN', 'ODD', 'DIFFERS', 'MATCHES'].includes(newType)) {
                   nextDuration = 1;
                   nextDurationUnit = 't';
                 }
-                onUpdateConfig({ tradeType: newType, duration: nextDuration, durationUnit: nextDurationUnit });
+                onUpdateConfig({
+                  tradeType: newType,
+                  duration: nextDuration,
+                  durationUnit: nextDurationUnit,
+                  predictionDigit: nextPred,
+                  executionMode: isContinuousDirectionalContract(newType)
+                    ? 'continuous'
+                    : config.executionMode || 'continuous',
+                });
               }}
               className="w-full appearance-none px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 font-medium cursor-pointer"
             >
@@ -493,6 +576,8 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
           <label className="text-xs font-semibold text-neutral-700">
             {['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(config.tradeType)
               ? 'Prediction digit'
+              : ['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType)
+              ? 'Predicted tick (1–5)'
               : 'Prediction / Target'}
           </label>
           {['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(config.tradeType) ? (
@@ -504,22 +589,45 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               onChange={(e) => onUpdateConfig({ predictionDigit: parseInt(e.target.value, 10) || 0 })}
               className="w-full px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
             />
+          ) : ['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType) ? (
+            <div className="relative">
+              <select
+                value={Math.min(5, Math.max(1, Number(config.predictionDigit) || 5))}
+                onChange={(e) =>
+                  onUpdateConfig({
+                    predictionDigit: Math.min(5, Math.max(1, parseInt(e.target.value, 10) || 5)),
+                    duration: 5,
+                    durationUnit: 't',
+                  })
+                }
+                className="w-full appearance-none px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-10 cursor-pointer"
+              >
+                {[1, 2, 3, 4, 5].map((tNum) => (
+                  <option key={tNum} value={tNum} className="bg-white text-neutral-900">
+                    Tick #{tNum}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 text-neutral-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
           ) : (
             <div className="w-full px-3.5 py-2 bg-neutral-100 border border-neutral-300 rounded-xl text-neutral-700 text-sm font-mono flex items-center justify-between select-none">
               <span className="truncate">
                 {['RISE', 'FALL'].includes(config.tradeType)
                   ? 'Price Direction'
+                  : ['HIGHER', 'LOWER'].includes(config.tradeType)
+                  ? 'High / Low Direction'
                   : ['ONLY_UP', 'ONLY_DOWN'].includes(config.tradeType)
                   ? 'Strict Run'
                   : ['RESET_CALL', 'RESET_PUT'].includes(config.tradeType)
                   ? 'Reset Barrier'
                   : ['STAY_BETWEEN', 'GOES_OUTSIDE'].includes(config.tradeType)
                   ? 'Barrier Range'
-                  : ['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType)
-                  ? 'Extremum Tick'
                   : 'Automatic'}
               </span>
-              <span className="text-[10px] text-neutral-500 font-bold uppercase">Spot</span>
+              <span className="text-[10px] text-neutral-500 font-bold uppercase">
+                {isDirectionalContinuous ? 'Continuous' : 'Spot'}
+              </span>
             </div>
           )}
         </div>
@@ -531,19 +639,21 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
           <label className="text-xs font-semibold text-neutral-700">Duration</label>
           <div className="flex gap-1.5">
             <NumericInput
-              min={1}
-              max={config.durationUnit === 'm' ? 120 : config.durationUnit === 's' ? 3600 : 10}
+              min={['ONLY_UP', 'ONLY_DOWN'].includes(config.tradeType) ? 2 : ['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType) ? 5 : 1}
+              max={['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType) ? 5 : ['ONLY_UP', 'ONLY_DOWN'].includes(config.tradeType) ? 5 : config.durationUnit === 'm' ? 120 : config.durationUnit === 's' ? 3600 : 10}
               step={1}
-              fallbackValue={1}
-              value={config.duration}
+              fallbackValue={['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType) ? 5 : ['ONLY_UP', 'ONLY_DOWN'].includes(config.tradeType) ? 2 : 1}
+              disabled={['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType)}
+              value={['HIGH_TICK', 'LOW_TICK'].includes(config.tradeType) ? 5 : config.duration}
               onChange={(val) => onUpdateConfig({ duration: Math.round(val) })}
-              className="flex-1 px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all"
+              className="flex-1 px-3.5 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-sm font-mono font-medium focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all disabled:opacity-75"
             />
             <div className="relative w-28">
               <select
-                value={config.durationUnit || 't'}
+                value={['HIGH_TICK', 'LOW_TICK', 'ONLY_UP', 'ONLY_DOWN'].includes(config.tradeType) ? 't' : config.durationUnit || 't'}
+                disabled={['HIGH_TICK', 'LOW_TICK', 'ONLY_UP', 'ONLY_DOWN'].includes(config.tradeType)}
                 onChange={(e) => onUpdateConfig({ durationUnit: e.target.value as 't' | 's' | 'm' })}
-                className="w-full appearance-none px-3 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-7 cursor-pointer"
+                className="w-full appearance-none px-3 py-2 bg-neutral-50 hover:bg-neutral-100 focus:bg-white border border-neutral-300 rounded-xl text-neutral-900 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-neutral-400 transition-all pr-7 cursor-pointer disabled:opacity-75"
               >
                 <option value="t" className="bg-white text-neutral-900">Ticks (t)</option>
                 <option value="s" className="bg-white text-neutral-900">Sec (s)</option>
@@ -606,12 +716,12 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
       <div className="grid grid-cols-2 gap-2.5">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <label className="text-xs font-semibold text-neutral-700">Take profit</label>
+            <label className="text-xs font-semibold text-neutral-700">Take profit ($)</label>
             <button
               type="button"
               onClick={() => onUpdateConfig({ takeProfit: Number((config.stake * 2).toFixed(2)) })}
               className="text-[10px] font-bold text-blue-600 hover:text-blue-700 cursor-pointer bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 transition-colors"
-              title="Set Take Profit to 2x stake (Default risk-management ratio)"
+              title="Set Take Profit to 2x stake"
             >
               2x (${(config.stake * 2).toFixed(2)})
             </button>
@@ -627,7 +737,7 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-neutral-700">Stop loss</label>
+          <label className="text-xs font-semibold text-neutral-700">Stop loss ($)</label>
           <NumericInput
             min={0.5}
             step={1}
@@ -639,7 +749,7 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         </div>
       </div>
 
-      {/* Primary Action Buttons: Compact Save Strategy & Reset History fitted to font size */}
+      {/* Primary Action Buttons */}
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={handleSaveStrategy}
@@ -665,20 +775,16 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
         <button
           onClick={handleResetHistoryClick}
           className="w-fit inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 hover:bg-sky-100 border border-sky-300 text-sky-700 font-semibold text-[11px] leading-tight transition-all shadow-xs cursor-pointer active:scale-95 whitespace-nowrap"
-          title="Reset trade history and performance metrics (bot settings are preserved)"
+          title="Reset trade history and Session P/L"
         >
           <RotateCcw className={`w-3 h-3 text-sky-600 shrink-0 transition-transform ${resetTradeFeedback ? 'animate-spin' : ''}`} />
           <span>{resetTradeFeedback ? 'History Reset!' : 'Reset History'}</span>
         </button>
       </div>
 
-      {/* Real-time bot metrics & live executions (Bot Footer in White Box) */}
-      <div
-        className="border border-neutral-200 rounded-xl p-3 flex flex-col gap-2.5 mt-1 bg-neutral-50 text-neutral-900 shadow-sm"
-      >
-        <div
-          className="flex items-center justify-between text-xs font-semibold text-neutral-700"
-        >
+      {/* Real-time bot metrics & live executions */}
+      <div className="border border-neutral-200 rounded-xl p-3 flex flex-col gap-2.5 mt-1 bg-neutral-50 text-neutral-900 shadow-sm">
+        <div className="flex items-center justify-between text-xs font-semibold text-neutral-700 flex-wrap gap-2">
           <div className="flex items-center gap-1.5">
             <span
               className={`w-2 h-2 rounded-full ${
@@ -694,30 +800,43 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
               {isRunning
                 ? isPaused
                   ? 'Paused'
-                  : (config.executionMode || 'reanalyse') === 'continuous'
-                  ? 'Active (Continuous after Analysis)'
+                  : effectiveExecutionMode === 'continuous'
+                  ? 'Active (Continuous after Entry)'
                   : 'Active (Re-analysing Each Trade)'
+                : stopReason
+                ? stopReason
                 : 'Idle'}
             </span>
           </div>
-          <span
-            className="font-mono text-neutral-950 font-bold"
-          >
+          <span className="font-mono text-neutral-950 font-bold tabular-nums">
             Balance: ${balance.toFixed(2)}
           </span>
         </div>
 
-        <div className="grid grid-cols-4 gap-2 text-center text-xs">
-          <div
-            className="p-2 rounded-lg border border-neutral-200 bg-white"
-          >
-            <div
-              className="text-[10px] uppercase font-semibold text-neutral-500"
-            >
-              Net P/L
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-xs">
+          <div className="p-2 rounded-lg border border-neutral-200 bg-white">
+            <div className="text-[10px] uppercase font-semibold text-neutral-500">
+              Session P/L
             </div>
             <div
-              className={`font-mono font-bold ${
+              className={`font-mono font-bold tabular-nums ${
+                sessionPnl > 0
+                  ? 'text-emerald-600'
+                  : sessionPnl < 0
+                  ? 'text-rose-600'
+                  : 'text-neutral-800'
+              }`}
+            >
+              {sessionPnl >= 0 ? '+' : '-'}${Math.abs(sessionPnl).toFixed(2)}
+            </div>
+          </div>
+
+          <div className="p-2 rounded-lg border border-neutral-200 bg-white">
+            <div className="text-[10px] uppercase font-semibold text-neutral-500">
+              Total P/L
+            </div>
+            <div
+              className={`font-mono font-bold tabular-nums ${
                 metrics.totalProfit > 0
                   ? 'text-emerald-600'
                   : metrics.totalProfit < 0
@@ -725,49 +844,33 @@ export const BotStrategyPanel: React.FC<BotStrategyPanelProps> = ({
                   : 'text-neutral-800'
               }`}
             >
-              {metrics.totalProfit > 0 ? '+' : ''}${metrics.totalProfit.toFixed(2)}
+              {metrics.totalProfit >= 0 ? '+' : '-'}${Math.abs(metrics.totalProfit).toFixed(2)}
             </div>
           </div>
 
-          <div
-            className="p-2 rounded-lg border border-neutral-200 bg-white"
-          >
-            <div
-              className="text-[10px] uppercase font-semibold text-neutral-500"
-            >
+          <div className="p-2 rounded-lg border border-neutral-200 bg-white">
+            <div className="text-[10px] uppercase font-semibold text-neutral-500">
               Win Rate
             </div>
-            <div className="font-mono font-bold text-emerald-600">{metrics.winRate}%</div>
+            <div className="font-mono font-bold tabular-nums text-emerald-600">{metrics.winRate}%</div>
           </div>
 
-          <div
-            className="p-2 rounded-lg border border-neutral-200 bg-white"
-          >
-            <div
-              className="text-[10px] uppercase font-semibold text-neutral-500"
-            >
+          <div className="p-2 rounded-lg border border-neutral-200 bg-white">
+            <div className="text-[10px] uppercase font-semibold text-neutral-500">
               W / L
             </div>
-            <div
-              className="font-mono font-semibold text-neutral-800"
-            >
+            <div className="font-mono font-semibold tabular-nums text-neutral-800">
               <span className="text-emerald-600">{metrics.wins}</span>
               <span className="text-neutral-400">/</span>
               <span className="text-rose-600">{metrics.losses}</span>
             </div>
           </div>
 
-          <div
-            className="p-2 rounded-lg border border-neutral-200 bg-white"
-          >
-            <div
-              className="text-[10px] uppercase font-semibold text-neutral-500"
-            >
+          <div className="p-2 rounded-lg border border-neutral-200 bg-white col-span-2 sm:col-span-1">
+            <div className="text-[10px] uppercase font-semibold text-neutral-500">
               Trades
             </div>
-            <div
-              className="font-mono font-bold text-neutral-950"
-            >
+            <div className="font-mono font-bold tabular-nums text-neutral-950">
               {metrics.totalTrades}
             </div>
           </div>

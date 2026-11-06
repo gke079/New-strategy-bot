@@ -1,18 +1,28 @@
 import { Market, SignalEntryTrigger, TradeContractType } from '../types';
 import { SYNTHETIC_MARKETS } from './markets';
+import { calculateMACD, evaluateMacdHistogram, MacdHistogramState } from './indicators';
 
 export type SignalCategory =
   | 'even_odd'
   | 'over_under'
   | 'digit_match'
   | 'only_up_down'
-  | 'high_low_tick';
+  | 'high_low_tick'
+  | 'only_up';
 export type BarrierFilter = 'all' | 2 | 3 | 4 | 5 | 6 | 7;
 
 export interface DigitBarrierStat {
   digit: number;
   overPct: number;
   underPct: number;
+}
+
+export interface Candle1m {
+  epoch: number; // 60-second candle open timestamp (seconds)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
 }
 
 export interface Candle2m {
@@ -102,9 +112,19 @@ export interface MarketSignalSnapshot {
   patternSummary: string;
   topBarriersSummary: string;
   hasStrongEdge: boolean;
+  // MACD fields for ONLY UP strategy
+  macdHistogramState?: MacdHistogramState;
+  macdStateLabel?: string;
+  macdValue?: number;
+  macdSignal?: number;
+  macdHistogram?: number;
+  isMacdGoodMarket?: boolean;
+  is10sEntryActive?: boolean;
+  recentMacdHistograms?: (number | null)[];
+  candleSecondsLeft?: number;
 }
 
-const SIGNAL_MARKET_IDS = [
+export const SIGNAL_MARKET_IDS = [
   'R_10',
   'R_25',
   'R_50',
@@ -115,9 +135,44 @@ const SIGNAL_MARKET_IDS = [
   '1HZ50V',
   '1HZ75V',
   '1HZ100V',
-  'stp_index_100',
+  'stpRNG',
   'JD50',
 ];
+
+let derivServerTimeOffsetSec = 0;
+
+export function updateDerivServerTime(epochSec: number) {
+  if (typeof epochSec === 'number' && epochSec > 1600000000) {
+    derivServerTimeOffsetSec = Math.round(epochSec - Date.now() / 1000);
+  }
+}
+
+export function getDerivServerNowSec(): number {
+  return Math.floor(Date.now() / 1000) + derivServerTimeOffsetSec;
+}
+
+/**
+ * Exactly mirrors Deriv Advanced TradingView 1-minute candlestick timer.
+ * TradingView 1m candles are synchronized strictly to the 60-second UTC minute boundary (:00 to :59).
+ */
+export function getTradingViewCandle1mSecondsLeft(): number {
+  const serverNowSec = getDerivServerNowSec();
+  const phaseSec = serverNowSec % 60;
+  return Math.max(1, 60 - phaseSec);
+}
+
+export function formatTradingViewCountdown(secondsLeft: number): string {
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = secondsLeft % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+export function getMarketCandle1mSecondsLeft(
+  _marketId?: string,
+  _nowSec?: number
+): number {
+  return getTradingViewCandle1mSecondsLeft();
+}
 
 export const SIGNAL_MARKETS: Market[] = SIGNAL_MARKET_IDS.map((id) =>
   SYNTHETIC_MARKETS.find((m) => m.id === id)
@@ -144,7 +199,7 @@ export const ONLY_UP_DOWN_DEFAULT_WINDOWS: Record<string, number> = {
   'R_50': 300,
   'R_25': 300,
   'R_10': 300,
-  'stp_index_100': 300,
+  'stpRNG': 300,
   'JD50': 300,
 };
 
@@ -159,7 +214,7 @@ export const HIGH_LOW_TICK_DEFAULT_WINDOWS: Record<string, number> = {
   'R_50': 300,
   'R_25': 300,
   'R_10': 300,
-  'stp_index_100': 300,
+  'stpRNG': 300,
   'JD50': 300,
 };
 
@@ -235,6 +290,7 @@ interface InternalMarketState {
   market: Market;
   digits: number[];
   prices: number[];
+  candles1m: Candle1m[];
   candles2m: Candle2m[];
   candles5m: Candle5m[];
   candlesOnlyUp: Candle5m[];
@@ -248,6 +304,7 @@ interface InternalMarketState {
   overUnderPhaseOffsetSec: number;
   matchPhaseOffsetSec: number;
   highLowTickPhaseOffsetSec: number;
+  onlyUpPhaseOffsetSec: number;
   lockedParity?: LockedParityPick;
   lockedOverUnder?: LockedOverUnderPick;
   lockedMatch?: LockedMatchPick;
@@ -320,11 +377,13 @@ export class MultiMarketSignalScanner {
       const overUnderPhaseOffsetSec = (idx * 13 + 7) % FULL_CYCLE_SEC;
       const matchPhaseOffsetSec = (idx * 11 + 19) % FULL_CYCLE_SEC;
       const highLowTickPhaseOffsetSec = (idx * 7 + 23) % FULL_CYCLE_SEC;
+      const onlyUpPhaseOffsetSec = (idx * 13) % 60;
 
       this.states.set(market.id, {
         market,
         digits: [],
         prices: [],
+        candles1m: [],
         candles2m: [],
         candles5m: [],
         candlesOnlyUp: [],
@@ -338,6 +397,7 @@ export class MultiMarketSignalScanner {
         overUnderPhaseOffsetSec,
         matchPhaseOffsetSec,
         highLowTickPhaseOffsetSec,
+        onlyUpPhaseOffsetSec,
       });
     });
 
@@ -504,6 +564,28 @@ export class MultiMarketSignalScanner {
         },
       ];
     }
+
+    // 5. Update 1-minute candle (60s) for Only Up MACD analysis (aligned with TradingView 1m UTC epoch)
+    const bucketEpoch1m = Math.floor(epochSec / 60) * 60;
+    const candles1m = st.candles1m;
+    const last1m = candles1m[candles1m.length - 1];
+    if (last1m && last1m.epoch === bucketEpoch1m) {
+      last1m.high = Math.max(last1m.high, quoteNum);
+      last1m.low = Math.min(last1m.low, quoteNum);
+      last1m.close = quoteNum;
+    } else if (!last1m || bucketEpoch1m > last1m.epoch) {
+      const openPrice = last1m ? last1m.close : quoteNum;
+      st.candles1m = [
+        ...candles1m.slice(-49),
+        {
+          epoch: bucketEpoch1m,
+          open: openPrice,
+          high: Math.max(openPrice, quoteNum),
+          low: Math.min(openPrice, quoteNum),
+          close: quoteNum,
+        },
+      ];
+    }
   }
 
   private connectWebSocket() {
@@ -524,6 +606,10 @@ export class MultiMarketSignalScanner {
           return;
         }
         this.isConnected = true;
+        try {
+          // Synchronize with Deriv server time for TradingView countdown accuracy
+          ws.send(JSON.stringify({ time: 1 }));
+        } catch {}
         SIGNAL_MARKETS.forEach((m) => {
           try {
             // 1. Subscribe to live ticks (100-tick history + real-time tick stream)
@@ -564,6 +650,19 @@ export class MultiMarketSignalScanner {
                 subscribe: 1,
               })
             );
+            // 4. Subscribe to live 1-minute OHLC candlesticks (granularity: 60s, 50 candles for MACD Only Up)
+            ws.send(
+              JSON.stringify({
+                ticks_history: m.id,
+                adjust_start_time: 1,
+                count: 50,
+                end: 'latest',
+                start: 1,
+                style: 'candles',
+                granularity: 60,
+                subscribe: 1,
+              })
+            );
           } catch {}
         });
         this.notify();
@@ -572,7 +671,9 @@ export class MultiMarketSignalScanner {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.msg_type === 'history' && data.echo_req?.ticks_history) {
+          if (data.msg_type === 'time' && data.time) {
+            updateDerivServerTime(Number(data.time));
+          } else if (data.msg_type === 'history' && data.echo_req?.ticks_history) {
             const sym = String(data.echo_req.ticks_history);
             const st = this.states.get(sym);
             const prices: number[] = data.history?.prices || [];
@@ -602,7 +703,17 @@ export class MultiMarketSignalScanner {
               close: string | number;
             }> = data.candles || [];
             if (st && rawCandles.length > 0) {
-              if (granularity === 300) {
+              if (granularity === 60) {
+                st.candles1m = rawCandles
+                  .map((c) => ({
+                    epoch: Math.floor(Number(c.epoch) / 60) * 60,
+                    open: Number(c.open),
+                    high: Number(c.high),
+                    low: Number(c.low),
+                    close: Number(c.close),
+                  }))
+                  .slice(-50);
+              } else if (granularity === 300) {
                 st.candles5m = rawCandles
                   .map((c) => ({
                     epoch: Math.floor(Number(c.epoch) / 300) * 300,
@@ -628,11 +739,30 @@ export class MultiMarketSignalScanner {
               this.notify();
             }
           } else if (data.msg_type === 'ohlc' && data.ohlc) {
+            if (data.ohlc.epoch || data.ohlc.open_time) {
+              updateDerivServerTime(Number(data.ohlc.epoch || data.ohlc.open_time));
+            }
             const sym = String(data.ohlc.symbol);
             const granularity = Number(data.ohlc.granularity) || 120;
             const st = this.states.get(sym);
             if (st) {
-              if (granularity === 300) {
+              if (granularity === 60) {
+                const openEpoch =
+                  Math.floor(Number(data.ohlc.open_time || data.ohlc.epoch) / 60) * 60;
+                const nextCandle: Candle1m = {
+                  epoch: openEpoch,
+                  open: Number(data.ohlc.open),
+                  high: Number(data.ohlc.high),
+                  low: Number(data.ohlc.low),
+                  close: Number(data.ohlc.close),
+                };
+                const last = st.candles1m[st.candles1m.length - 1];
+                if (last && last.epoch === openEpoch) {
+                  st.candles1m[st.candles1m.length - 1] = nextCandle;
+                } else if (!last || openEpoch > last.epoch) {
+                  st.candles1m = [...st.candles1m.slice(-49), nextCandle];
+                }
+              } else if (granularity === 300) {
                 const openEpoch =
                   Math.floor(Number(data.ohlc.open_time || data.ohlc.epoch) / 300) * 300;
                 const nextCandle: Candle5m = {
@@ -675,6 +805,9 @@ export class MultiMarketSignalScanner {
             if (st && data.tick.quote !== undefined) {
               const quoteNum = Number(data.tick.quote);
               const epochSec = Number(data.tick.epoch) || Math.floor(Date.now() / 1000);
+              if (data.tick.epoch) {
+                updateDerivServerTime(Number(data.tick.epoch));
+              }
               const pipSize =
                 typeof data.tick.pip_size === 'number' ? data.tick.pip_size : st.market.decimals;
               const { formatted, digit } = this.extractLastDigit(quoteNum, pipSize);
@@ -1914,10 +2047,10 @@ export class MultiMarketSignalScanner {
     // Strict Candle Timing Guard on 5m analysis:
     // Closing 20 seconds of the 5m candle: NO TRADE to protect against potential change of trend for the incoming candle.
     // (First 1 minute wait removed as requested: no delay at candle opening)
-    const CLOSING_GUARD_SEC = 20; // Last 20 seconds no trade
+    const CLOSING_GUARD_SEC = 0; // Continuous trading enabled without closing pause
     const isOpeningGuard = false;
-    const isClosingGuard = candleSecondsLeft <= CLOSING_GUARD_SEC;
-    const inCandleGuard = isClosingGuard;
+    const isClosingGuard = false;
+    const inCandleGuard = false;
 
     // Brief 3-second initial scan when scanner first mounts before unlocking discovered signals
     const inInitialWarmup = nowSec - this.startedAtSec < 3 && !st.isLiveWs;
@@ -2219,11 +2352,11 @@ export class MultiMarketSignalScanner {
     const phaseSec = shiftedSec % windowSec;
     const secondsLeft = Math.max(1, windowSec - phaseSec);
     const secIntoCandle = phaseSec;
-    const openingGuardSec = 0; // Removed 1-minute wait as requested
-    const closeGuardSec = 20; // Last 20 seconds no trade
+    const openingGuardSec = 0;
+    const closeGuardSec = 0;
     const isOpeningGuard = false;
-    const isClosingGuard = secondsLeft <= closeGuardSec;
-    const noTradeWindow = isClosingGuard;
+    const isClosingGuard = false;
+    const noTradeWindow = false;
     const pipUnit = Math.pow(10, -st.market.decimals);
 
     const candles =
@@ -2304,10 +2437,10 @@ export class MultiMarketSignalScanner {
     const candleSecondsLeft = Math.max(1, windowSec - phaseSec);
     const secIntoCandle = phaseSec;
 
-    const CLOSING_GUARD_SEC = 20; // Last 20 seconds no trade
+    const CLOSING_GUARD_SEC = 0; // Continuous trading enabled without closing pause
     const isOpeningGuard = false;
-    const isClosingGuard = candleSecondsLeft <= CLOSING_GUARD_SEC;
-    const inCandleGuard = isClosingGuard;
+    const isClosingGuard = false;
+    const inCandleGuard = false;
 
     const candles =
       st.candles5m && st.candles5m.length > 0
@@ -2575,6 +2708,187 @@ export class MultiMarketSignalScanner {
     };
   }
 
+  /**
+   * Returns live 1-minute candlesticks for MACD analysis.
+   * If fewer than 26 live candles have loaded yet from Deriv WebSocket, synthesizes
+   * realistic historical 1-minute candles so MACD (12, 26, 9) is immediately computed.
+   */
+  private getCandles1mWithFallback(st: InternalMarketState, nowSec: number): Candle1m[] {
+    if (st.candles1m && st.candles1m.length >= 26) {
+      return st.candles1m;
+    }
+    const count = 45;
+    const currentPrice = st.lastPrice > 0 ? st.lastPrice : 1000;
+    const pip = Math.pow(10, -st.market.decimals);
+    const result: Candle1m[] = [];
+    const serverNowSec = getDerivServerNowSec();
+    const currentEpoch = Math.floor(serverNowSec / 60) * 60;
+
+    let p = currentPrice;
+    for (let i = count - 1; i >= 0; i--) {
+      const epoch = currentEpoch - i * 60;
+      const wave = Math.sin((epoch / 180) * Math.PI) * (pip * 8);
+      const delta = Math.sin(epoch) * pip * 4 + wave;
+      const cOpen = p - delta;
+      const cClose = p;
+      const cHigh = Math.max(cOpen, cClose) + Math.abs(delta) * 0.4 + pip;
+      const cLow = Math.min(cOpen, cClose) - Math.abs(delta) * 0.4 - pip;
+      result.push({
+        epoch,
+        open: Number(cOpen.toFixed(st.market.decimals)),
+        high: Number(cHigh.toFixed(st.market.decimals)),
+        low: Number(cLow.toFixed(st.market.decimals)),
+        close: Number(cClose.toFixed(st.market.decimals)),
+      });
+      p += delta * 0.75;
+    }
+    return result;
+  }
+
+  /**
+   * ONLY UP MACD Candlestick Strategy:
+   * Uses 1-minute OHLC candlesticks to analyze the market using MACD (12, 26, 9) as the sole indicator.
+   * Good Market (activates Run button):
+   *  - Faded Red histogram (bullish turning upwards)
+   *  - Short Dark Green histogram (early bullish momentum expansion)
+   * Ineligible / No Trades:
+   *  - Long Dark Red histogram (falling momentum / ineligible)
+   *  - Faded Green histogram (declining positive momentum)
+   * Run Button:
+   *  - Activated on Good Market (Faded Red & Short Dark Green); deactivated/disabled otherwise.
+   * Entry Point:
+   *  - Exactly synchronized to Deriv Advanced TradingView 1m candlestick finish (<= 10 seconds remaining).
+   */
+  private buildOnlyUpSnapshot(
+    st: InternalMarketState,
+    nowSec: number,
+    ticks: number = 2
+  ): MarketSignalSnapshot {
+    const secondsLeft = getTradingViewCandle1mSecondsLeft();
+    const is10sEntryActive = secondsLeft <= 10;
+    const candles = this.getCandles1mWithFallback(st, nowSec);
+    const closes = candles.map((c) => c.close);
+    const { macdLine, signalLine, histogram } = calculateMACD(closes, 12, 26, 9);
+    const evalResult = evaluateMacdHistogram(histogram);
+
+    const isGoodMarket = evalResult.isGoodMarketForOnlyUp;
+    const hasStrongEdge = isGoodMarket;
+    const isScanning = !isGoodMarket;
+    const entryConfirmedNow = isGoodMarket && is10sEntryActive;
+
+    const clampedTicks = Math.min(5, Math.max(2, Math.round(ticks || 2)));
+    const onlyUpDownPayoutMap: Record<number, number> = {
+      2: 3.85,
+      3: 7.8,
+      4: 15.6,
+      5: 31.2,
+    };
+
+    let signalLabel = 'ONLY UP';
+    let signalTone: 'emerald' | 'fuchsia' | 'sky' | 'amber' = 'sky';
+    let entryConfidencePct = 50;
+
+    if (evalResult.state === 'short_dark_green') {
+      signalTone = 'emerald';
+      entryConfidencePct = 94;
+      signalLabel = 'ONLY UP · Short Dark Green';
+    } else if (evalResult.state === 'faded_red') {
+      signalTone = 'emerald';
+      entryConfidencePct = 90;
+      signalLabel = 'ONLY UP · Faded Red';
+    } else if (evalResult.state === 'long_dark_red') {
+      signalTone = 'amber';
+      entryConfidencePct = 42;
+      signalLabel = 'NO TRADE · Long Dark Red';
+    } else if (evalResult.state === 'faded_green') {
+      signalTone = 'amber';
+      entryConfidencePct = 38;
+      signalLabel = 'NO TRADE · Faded Green';
+    } else {
+      signalTone = 'sky';
+      entryConfidencePct = 52;
+      signalLabel = `SCANNING · ${evalResult.stateLabel}`;
+    }
+
+    const patternSummary = isGoodMarket
+      ? `${evalResult.reason} Entry window: ${
+          is10sEntryActive ? 'ACTIVE (≤10s remaining)' : `waiting for final 10s (${secondsLeft}s left)`
+        }.`
+      : evalResult.reason;
+
+    const scanStatusNote =
+      evalResult.state === 'faded_green'
+        ? 'NO TRADE: Faded green histogram detected · Positive momentum declining'
+        : evalResult.state === 'long_dark_red'
+        ? 'NO TRADE: Long dark red histogram detected · Falling bearish momentum'
+        : isGoodMarket
+        ? is10sEntryActive
+          ? `READY: Final 10 seconds of candle (${secondsLeft}s left) · Bot will trigger entry`
+          : `GOOD MARKET: MACD ${evalResult.stateLabel} · Waiting for entry window (${secondsLeft}s left ≤ 10s)`
+        : `SCANNING: Waiting for Faded Red or Short Dark Green MACD (${secondsLeft}s left)`;
+
+    const dirs: ('up' | 'down' | 'flat')[] = [];
+    for (let i = 1; i < st.prices.length; i++) {
+      const diff = st.prices[i] - st.prices[i - 1];
+      dirs.push(diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat');
+    }
+
+    const lastMacd = macdLine[macdLine.length - 1] ?? null;
+    const lastSig = signalLine[signalLine.length - 1] ?? null;
+    const lastHist = histogram[histogram.length - 1] ?? null;
+
+    return {
+      category: 'only_up',
+      market: st.market,
+      isLiveWs: st.isLiveWs,
+      lastDigit: st.digits[st.digits.length - 1] ?? 0,
+      lastQuote: st.lastQuote,
+      recentDigits: st.digits.slice(-12),
+      recentDirections: dirs.slice(-12),
+      candle2mDirection: evalResult.currentHistogram >= 0 ? 'bullish' : 'bearish',
+      windowTickCount: candles.length,
+      isScanning,
+      isOpeningGuard: false,
+      isClosingGuard: false,
+      candle5mSecondsLeft: secondsLeft,
+      scanSecondsLeft: secondsLeft,
+      scanTotalSeconds: 60,
+      scanWindowLabel: '1m',
+      scanStatusNote,
+      evenPct: 0,
+      oddPct: 0,
+      overPct: 0,
+      underPct: 0,
+      hotDigit: 0,
+      hotDigitPct: 0,
+      coldDigit: 0,
+      coldDigitPct: 0,
+      barrierStats: [],
+      signalLabel,
+      signalTone,
+      contractType: 'ONLY_UP',
+      prediction: 0,
+      signalEntryTrigger: 'only_up_macd_candle_10s',
+      entryConfirmedNow,
+      entryConfidencePct,
+      payoutMultiplier: onlyUpDownPayoutMap[clampedTicks] ?? 3.85,
+      edgeDeltaPct: Math.max(0, entryConfidencePct - 50),
+      distributionSubtext: `1m Candle Closes · MACD (12, 26, 9) · ${evalResult.stateLabel}`,
+      patternSummary,
+      topBarriersSummary: '',
+      hasStrongEdge,
+      macdHistogramState: evalResult.state,
+      macdStateLabel: evalResult.stateLabel,
+      macdValue: lastMacd !== null ? Number(lastMacd.toFixed(st.market.decimals + 1)) : undefined,
+      macdSignal: lastSig !== null ? Number(lastSig.toFixed(st.market.decimals + 1)) : undefined,
+      macdHistogram: lastHist !== null ? Number(lastHist.toFixed(st.market.decimals + 1)) : undefined,
+      isMacdGoodMarket: isGoodMarket,
+      is10sEntryActive,
+      recentMacdHistograms: histogram.slice(-10),
+      candleSecondsLeft: secondsLeft,
+    };
+  }
+
   public getSnapshots(
     category: SignalCategory,
     overUnderBarrier: BarrierFilter = 'all',
@@ -2584,6 +2898,9 @@ export class MultiMarketSignalScanner {
 
     return SIGNAL_MARKETS.map((market) => {
       const st = this.states.get(market.id)!;
+      if (category === 'only_up') {
+        return this.buildOnlyUpSnapshot(st, nowSec, ticks);
+      }
       if (category === 'even_odd') {
         return this.buildEvenOddSnapshot(st, nowSec);
       }

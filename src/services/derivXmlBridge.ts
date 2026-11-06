@@ -743,7 +743,7 @@ export function parseDerivXmlToConfig(
     const rawSym = symbolField.textContent.trim();
     const matchedMarket =
       SYNTHETIC_MARKETS.find((m) => m.id.toLowerCase() === rawSym.toLowerCase()) ||
-      (rawSym === 'stpRNG' ? SYNTHETIC_MARKETS.find((m) => m.id === 'stp_index_100') : undefined);
+      (rawSym === 'stp_index_100' ? SYNTHETIC_MARKETS.find((m) => m.id === 'stpRNG') : undefined);
     if (matchedMarket) {
       nextConfig.marketId = matchedMarket.id;
       summary.push(`Market: ${matchedMarket.name} (${matchedMarket.id})`);

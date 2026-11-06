@@ -102,7 +102,10 @@ export const ChartsView: React.FC<ChartsViewProps> = ({
               <span className="font-mono text-slate-300 font-semibold">{market.symbol}</span>
               <span>•</span>
               <span className="text-[#00e599] font-medium flex items-center gap-1">
-                <Sparkles className="w-3 h-3" /> 5m Candlestick Wicks + RSI(14) Analysis
+                <Sparkles className="w-3 h-3" />
+                {timePeriod === '1m'
+                  ? 'Deriv 1m Candlestick Timer & TradingView Sync'
+                  : '5m Candlestick Wicks + RSI(14) Analysis'}
               </span>
             </div>
           </div>

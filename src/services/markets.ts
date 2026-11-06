@@ -73,10 +73,10 @@ export const SYNTHETIC_MARKETS: Market[] = [
     symbol: 'V15 (1s)',
     name: 'Volatility 15 (1s) Index',
     category: 'volatility-1s',
-    decimals: 2,
+    decimals: 3,
     basePrice: 15320.45,
     volatility: 0.00025,
-    pipSize: 0.01,
+    pipSize: 0.001,
   },
   {
     id: '1HZ25V',
@@ -123,10 +123,10 @@ export const SYNTHETIC_MARKETS: Market[] = [
     symbol: 'V90 (1s)',
     name: 'Volatility 90 (1s) Index',
     category: 'volatility-1s',
-    decimals: 2,
+    decimals: 3,
     basePrice: 91420.65,
     volatility: 0.0006,
-    pipSize: 0.01,
+    pipSize: 0.001,
   },
   {
     id: '1HZ100V',
@@ -197,7 +197,7 @@ export const SYNTHETIC_MARKETS: Market[] = [
   // 4. STEP INDICES (STEP 100, STEP 200, STEP 300, STEP 400, STEP 500)
   // ==========================================
   {
-    id: 'stp_index_100',
+    id: 'stpRNG',
     symbol: 'STEP 100',
     name: 'Step Index 100',
     category: 'step',
@@ -207,7 +207,7 @@ export const SYNTHETIC_MARKETS: Market[] = [
     pipSize: 0.1,
   },
   {
-    id: 'stp_index_200',
+    id: 'stpRNG2',
     symbol: 'STEP 200',
     name: 'Step Index 200',
     category: 'step',
@@ -217,7 +217,7 @@ export const SYNTHETIC_MARKETS: Market[] = [
     pipSize: 0.1,
   },
   {
-    id: 'stp_index_300',
+    id: 'stpRNG3',
     symbol: 'STEP 300',
     name: 'Step Index 300',
     category: 'step',
@@ -227,7 +227,7 @@ export const SYNTHETIC_MARKETS: Market[] = [
     pipSize: 0.1,
   },
   {
-    id: 'stp_index_400',
+    id: 'stpRNG4',
     symbol: 'STEP 400',
     name: 'Step Index 400',
     category: 'step',
@@ -237,7 +237,7 @@ export const SYNTHETIC_MARKETS: Market[] = [
     pipSize: 0.1,
   },
   {
-    id: 'stp_index_500',
+    id: 'stpRNG5',
     symbol: 'STEP 500',
     name: 'Step Index 500',
     category: 'step',
@@ -247,6 +247,20 @@ export const SYNTHETIC_MARKETS: Market[] = [
     pipSize: 0.1,
   },
 ];
+
+const LEGACY_STEP_SYMBOL_MAP: Record<string, string> = {
+  stp_index_100: 'stpRNG',
+  stp_index_200: 'stpRNG2',
+  stp_index_300: 'stpRNG3',
+  stp_index_400: 'stpRNG4',
+  stp_index_500: 'stpRNG5',
+};
+
+export function normalizeMarketId(marketId?: string): string {
+  if (!marketId) return 'R_75';
+  if (LEGACY_STEP_SYMBOL_MAP[marketId]) return LEGACY_STEP_SYMBOL_MAP[marketId];
+  return SYNTHETIC_MARKETS.some((m) => m.id === marketId) ? marketId : 'R_75';
+}
 
 export const DEFAULT_MARKET =
   SYNTHETIC_MARKETS.find((m) => m.id === 'R_75') || SYNTHETIC_MARKETS[0];

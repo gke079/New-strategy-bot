@@ -1,6 +1,34 @@
-import { BotMetrics, BotStrategyConfig, DigitStat, RatioStats, Tick, Trade } from '../types';
+import {
+  BotMetrics,
+  BotStrategyConfig,
+  DigitStat,
+  isContinuousDirectionalContract,
+  RatioStats,
+  Tick,
+  Trade,
+} from '../types';
 import { soundManager } from './soundEffects';
 import confetti from 'canvas-confetti';
+
+interface PendingStrategyContract {
+  entryTick: Tick;
+  stake: number;
+  duration: number;
+  durationUnit: 't' | 's' | 'm';
+  ticksRemaining: number;
+  startTime: number;
+  endTime?: number;
+  hasSkipTick: boolean;
+  skippedOnce: boolean;
+  lastObservedQuote: number;
+  allStrictUp: boolean;
+  allStrictDown: boolean;
+  observedQuotes: number[];
+  predictionText: string;
+  payoutMultiplier: number;
+  tradeType: BotStrategyConfig['tradeType'];
+  predictionDigit: number;
+}
 
 export class BotExecutor {
   private config: BotStrategyConfig;
@@ -8,6 +36,8 @@ export class BotExecutor {
   private currentStep: number = 0;
   private consecutiveLosses: number = 0;
   private consecutiveWins: number = 0;
+  private sessionProfit: number = 0;
+  private lastStopReason: string = '';
   private trades: Trade[] = [];
   private metrics: BotMetrics = {
     totalTrades: 0,
@@ -15,6 +45,8 @@ export class BotExecutor {
     losses: 0,
     winRate: 0,
     totalProfit: 0,
+    sessionProfit: 0,
+    lastStopReason: '',
     currentStreak: { type: null, count: 0 },
     maxDrawdown: 0,
     peakBalance: 10000,
@@ -24,46 +56,56 @@ export class BotExecutor {
   private isPaused: boolean = false;
   private analysisTriggered: boolean = false;
   public readonly botSource: 'digits' | 'charts';
-  private onTradeListeners: Set<(trade: Trade, metrics: BotMetrics, balance: number) => void> = new Set();
+  private onTradeListeners: Set<(trade: Trade, metrics: BotMetrics, balance: number) => void> =
+    new Set();
   private onStatusChangeListeners: Set<(isRunning: boolean, reason?: string) => void> = new Set();
   private onPauseChangeListeners: Set<(isPaused: boolean) => void> = new Set();
-  private pendingContract: {
-    entryTick: Tick;
-    stake: number;
-    ticksRemaining: number;
-    predictionText: string;
-    payoutMultiplier: number;
-    tradeType: BotStrategyConfig['tradeType'];
-    predictionDigit: number;
-  } | null = null;
+  private pendingContract: PendingStrategyContract | null = null;
 
-  constructor(config: BotStrategyConfig, initialBalance: number = 10000, botSource: 'digits' | 'charts' = 'digits') {
+  constructor(
+    config: BotStrategyConfig,
+    initialBalance: number = 10000,
+    botSource: 'digits' | 'charts' = 'digits'
+  ) {
     this.config = { ...config };
-    this.currentStake = config.initialStake;
-    this.balance = initialBalance;
-    this.metrics.peakBalance = initialBalance;
+    this.currentStake = Math.max(0.35, Number(config.initialStake) || 0.35);
+    const safeBalance = initialBalance > 0 ? initialBalance : 10000;
+    this.balance = safeBalance;
+    this.metrics.peakBalance = safeBalance;
     this.botSource = botSource;
   }
 
   public updateConfig(newConfig: Partial<BotStrategyConfig>) {
     const analysisParamChanged =
-      (newConfig.entryCondition !== undefined && newConfig.entryCondition !== this.config.entryCondition) ||
+      (newConfig.entryCondition !== undefined &&
+        newConfig.entryCondition !== this.config.entryCondition) ||
       (newConfig.n !== undefined && newConfig.n !== this.config.n) ||
       (newConfig.xDigit !== undefined && newConfig.xDigit !== this.config.xDigit) ||
       (newConfig.pPercent !== undefined && newConfig.pPercent !== this.config.pPercent);
 
-    if (analysisParamChanged || newConfig.executionMode === 'reanalyse') {
+    const nextTradeType = newConfig.tradeType ?? this.config.tradeType;
+    if (
+      analysisParamChanged ||
+      (newConfig.executionMode === 'reanalyse' && !isContinuousDirectionalContract(nextTradeType))
+    ) {
       this.analysisTriggered = false;
     }
 
-    this.config = { ...this.config, ...newConfig };
+    this.config = {
+      ...this.config,
+      ...newConfig,
+      ...(isContinuousDirectionalContract(nextTradeType) ? { executionMode: 'continuous' } : {}),
+    };
     if (!this.isRunning) {
-      this.currentStake = this.config.initialStake;
+      this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
       this.currentStep = 0;
     }
   }
 
   public setBalance(newBalance: number) {
+    if (newBalance <= 0 && !this.isRunning && this.metrics.totalTrades === 0) {
+      return;
+    }
     this.balance = newBalance;
     this.metrics.peakBalance = Math.max(this.metrics.peakBalance, newBalance);
   }
@@ -73,7 +115,11 @@ export class BotExecutor {
   }
 
   public getMetrics(): BotMetrics {
-    return { ...this.metrics };
+    return {
+      ...this.metrics,
+      sessionProfit: this.sessionProfit,
+      lastStopReason: this.lastStopReason,
+    };
   }
 
   public getTrades(): Trade[] {
@@ -89,11 +135,22 @@ export class BotExecutor {
   }
 
   public start() {
+    if (this.balance <= 0 && this.metrics.totalTrades === 0) {
+      this.balance = 10000;
+      this.metrics.peakBalance = 10000;
+    }
     this.isRunning = true;
     this.isPaused = false;
     this.analysisTriggered = false;
     this.pendingContract = null;
-    this.currentStake = this.config.initialStake;
+    this.sessionProfit = 0;
+    this.lastStopReason = '';
+    this.metrics = {
+      ...this.metrics,
+      sessionProfit: 0,
+      lastStopReason: '',
+    };
+    this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
     this.currentStep = 0;
     this.consecutiveLosses = 0;
     this.consecutiveWins = 0;
@@ -106,6 +163,12 @@ export class BotExecutor {
     this.isPaused = false;
     this.analysisTriggered = false;
     this.pendingContract = null;
+    this.lastStopReason = reason || '';
+    this.metrics = {
+      ...this.metrics,
+      sessionProfit: this.sessionProfit,
+      lastStopReason: this.lastStopReason,
+    };
     this.notifyStatus(false, reason);
     this.notifyPause(false);
   }
@@ -126,7 +189,9 @@ export class BotExecutor {
     this.trades = [];
     this.pendingContract = null;
     this.analysisTriggered = false;
-    this.currentStake = this.config.initialStake;
+    this.sessionProfit = 0;
+    this.lastStopReason = '';
+    this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
     this.currentStep = 0;
     this.consecutiveLosses = 0;
     this.consecutiveWins = 0;
@@ -136,6 +201,8 @@ export class BotExecutor {
       losses: 0,
       winRate: 0,
       totalProfit: 0,
+      sessionProfit: 0,
+      lastStopReason: '',
       currentStreak: { type: null, count: 0 },
       maxDrawdown: 0,
       peakBalance: this.balance,
@@ -143,7 +210,7 @@ export class BotExecutor {
   }
 
   public resetTradeStake() {
-    this.currentStake = this.config.initialStake;
+    this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
     this.currentStep = 0;
     this.consecutiveLosses = 0;
     this.consecutiveWins = 0;
@@ -157,7 +224,9 @@ export class BotExecutor {
     return this.currentStep;
   }
 
-  public onTrade(listener: (trade: Trade, metrics: BotMetrics, balance: number) => void): () => void {
+  public onTrade(
+    listener: (trade: Trade, metrics: BotMetrics, balance: number) => void
+  ): () => void {
     this.onTradeListeners.add(listener);
     return () => this.onTradeListeners.delete(listener);
   }
@@ -180,8 +249,31 @@ export class BotExecutor {
     this.onPauseChangeListeners.forEach((l) => l(paused));
   }
 
-  // Calculate payout multiplier based on trade contract type and prediction digit
-  private getPayoutMultiplier(type: BotStrategyConfig['tradeType'], digit: number): number {
+  private checkTpSlAndStop(): boolean {
+    const tp = Number(this.config.takeProfit);
+    const sl = Math.abs(Number(this.config.stopLoss));
+
+    if (Number.isFinite(tp) && tp > 0 && this.sessionProfit >= tp - 1e-6) {
+      this.stop(`Take Profit reached (+$${this.sessionProfit.toFixed(2)})`);
+      try {
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      } catch {}
+      return true;
+    }
+
+    if (Number.isFinite(sl) && sl > 0 && this.sessionProfit <= -(sl - 1e-6)) {
+      this.stop(`Stop Loss reached (-$${Math.abs(this.sessionProfit).toFixed(2)})`);
+      return true;
+    }
+
+    return false;
+  }
+
+  private getPayoutMultiplier(
+    type: BotStrategyConfig['tradeType'],
+    digit: number,
+    durationTicks: number = 2
+  ): number {
     switch (type) {
       case 'OVER': {
         const winningCount = Math.max(1, 9 - digit);
@@ -205,14 +297,17 @@ export class BotExecutor {
       case 'ASIAN_DOWN':
         return 1.95;
       case 'ONLY_UP':
-      case 'ONLY_DOWN':
-        return 3.85;
+      case 'ONLY_DOWN': {
+        const clamped = Math.min(5, Math.max(2, Math.round(durationTicks || 2)));
+        const map: Record<number, number> = { 2: 3.85, 3: 7.8, 4: 15.6, 5: 31.2 };
+        return map[clamped] ?? 3.85;
+      }
       case 'RESET_CALL':
       case 'RESET_PUT':
         return 1.85;
       case 'HIGH_TICK':
       case 'LOW_TICK':
-        return 4.20;
+        return 4.2;
       case 'STAY_BETWEEN':
         return 1.92;
       case 'GOES_OUTSIDE':
@@ -226,11 +321,10 @@ export class BotExecutor {
     }
   }
 
-  // Check if strategy entry condition is satisfied by recent ticks
   private checkEntryCondition(
     recentTicks: Tick[],
     digitStats: DigitStat[],
-    ratioStats: RatioStats
+    _ratioStats: RatioStats
   ): boolean {
     const n = Math.max(1, this.config.n);
     const x = this.config.xDigit;
@@ -241,23 +335,24 @@ export class BotExecutor {
 
     switch (this.config.entryCondition) {
       case 'under_x': {
-        // "Last N digits all under X" (e.g. last 3 digits all under 3)
         const allUnder = lastNDigits.every((d) => d < x);
         if (!allUnder) return false;
-        // If P % is set, check if the frequency of digits under X is <= P %
         if (p > 0) {
-          const underCount = digitStats.filter((s) => s.digit < x).reduce((acc, curr) => acc + curr.percentage, 0);
+          const underCount = digitStats
+            .filter((s) => s.digit < x)
+            .reduce((acc, curr) => acc + curr.percentage, 0);
           if (underCount > p) return false;
         }
         return true;
       }
 
       case 'over_x': {
-        // "Last N digits all over X"
         const allOver = lastNDigits.every((d) => d > x);
         if (!allOver) return false;
         if (p > 0) {
-          const overCount = digitStats.filter((s) => s.digit > x).reduce((acc, curr) => acc + curr.percentage, 0);
+          const overCount = digitStats
+            .filter((s) => s.digit > x)
+            .reduce((acc, curr) => acc + curr.percentage, 0);
           if (overCount > p) return false;
         }
         return true;
@@ -272,7 +367,6 @@ export class BotExecutor {
       }
 
       case 'n_rising_then_falling': {
-        // At least N rising ticks followed by 1 falling tick (N >= 2)
         const minN = Math.max(2, this.config.n);
         if (recentTicks.length < minN + 1) return false;
 
@@ -281,7 +375,6 @@ export class BotExecutor {
         const isLastFalling = lastTick.direction === 'down' || lastTick.change < 0;
         if (!isLastFalling) return false;
 
-        // Count consecutive rising ticks immediately prior to the falling tick
         let risingCount = 0;
         for (let i = lastIdx - 1; i >= 0; i--) {
           const t = recentTicks[i];
@@ -297,7 +390,6 @@ export class BotExecutor {
       }
 
       case 'n_falling_then_rising': {
-        // At least N falling ticks followed by 1 rising tick (N >= 2)
         const minN = Math.max(2, this.config.n);
         if (recentTicks.length < minN + 1) return false;
 
@@ -341,7 +433,81 @@ export class BotExecutor {
     }
   }
 
-  // Evaluates every incoming tick against strategy conditions
+  private formatPredictionText(tradeType: BotStrategyConfig['tradeType'], predictionDigit: number) {
+    if (tradeType === 'UNDER') return `Under ${predictionDigit}`;
+    if (tradeType === 'OVER') return `Over ${predictionDigit}`;
+    if (tradeType === 'DIFFERS') return `Differs ${predictionDigit}`;
+    if (tradeType === 'MATCHES') return `Matches ${predictionDigit}`;
+    if (tradeType === 'HIGH_TICK') {
+      return `High Tick #${Math.min(5, Math.max(1, Math.round(predictionDigit || 5)))}`;
+    }
+    if (tradeType === 'LOW_TICK') {
+      return `Low Tick #${Math.min(5, Math.max(1, Math.round(predictionDigit || 5)))}`;
+    }
+    return tradeType.replace('_', ' ');
+  }
+
+  private openStrategyContract(entryTick: Tick): boolean {
+    if (!this.isRunning || this.isPaused) return false;
+    if (this.checkTpSlAndStop()) return false;
+
+    const desiredStake = Math.max(
+      0.35,
+      Number((this.currentStake || this.config.initialStake || 0.35).toFixed(2))
+    );
+    if (this.balance < 0.35) {
+      this.stop('Insufficient balance to place minimum stake ($0.35)');
+      return false;
+    }
+    const stakeToUse = Number(Math.min(this.balance, desiredStake).toFixed(2));
+
+    const tradeType = this.config.tradeType;
+    const isOnlyUpDown = tradeType === 'ONLY_UP' || tradeType === 'ONLY_DOWN';
+    const isHighLowTick = tradeType === 'HIGH_TICK' || tradeType === 'LOW_TICK';
+    const isDirectional = isContinuousDirectionalContract(tradeType);
+    const isFast = this.config.botSpeed === 'fast';
+    const unit = isHighLowTick ? 't' : this.config.durationUnit || 't';
+    const configuredDur = Math.max(1, Math.round(this.config.duration || 1));
+
+    const duration = isOnlyUpDown
+      ? Math.min(5, Math.max(2, configuredDur))
+      : isHighLowTick
+      ? 5
+      : configuredDur;
+
+    const predictionDigit = isHighLowTick
+      ? Math.min(5, Math.max(1, Math.round(this.config.predictionDigit || 5)))
+      : this.config.predictionDigit;
+
+    const payoutMultiplier = this.getPayoutMultiplier(tradeType, predictionDigit, duration);
+    const predictionText = this.formatPredictionText(tradeType, predictionDigit);
+    const hasSkipTick = !isDirectional && !isFast && unit === 't' && duration === 1;
+    const nowMs = Date.now();
+    const durationSeconds = unit === 'm' ? duration * 60 : unit === 's' ? duration : 0;
+    const endTime = durationSeconds > 0 ? nowMs + durationSeconds * 1000 : undefined;
+
+    this.pendingContract = {
+      entryTick,
+      stake: stakeToUse,
+      duration,
+      durationUnit: unit,
+      ticksRemaining: duration,
+      startTime: nowMs,
+      endTime,
+      hasSkipTick,
+      skippedOnce: false,
+      lastObservedQuote: entryTick.quote,
+      allStrictUp: true,
+      allStrictDown: true,
+      observedQuotes: [],
+      predictionText,
+      payoutMultiplier,
+      tradeType,
+      predictionDigit,
+    };
+    return true;
+  }
+
   public evaluateTick(
     tick: Tick,
     allTicks: Tick[],
@@ -351,51 +517,69 @@ export class BotExecutor {
   ) {
     if (!this.isRunning || this.isPaused) return;
 
-    // Check Take Profit or Stop Loss
-    if (this.metrics.totalProfit >= this.config.takeProfit) {
-      this.stop(`Take Profit reached (+${this.metrics.totalProfit.toFixed(2)}$)`);
-      try {
-        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-      } catch {}
+    if (this.checkTpSlAndStop()) {
       return;
     }
 
-    if (this.metrics.totalProfit <= -Math.abs(this.config.stopLoss)) {
-      this.stop(`Stop Loss reached (${this.metrics.totalProfit.toFixed(2)}$)`);
-      return;
-    }
-
-    // 1. If a contract is pending in Normal Mode:
+    // 1. Advance active pending contract
     if (this.pendingContract) {
-      if (this.pendingContract.ticksRemaining === 2) {
-        // Normal mode: skip 1 tick!
-        this.pendingContract.ticksRemaining = 1;
+      const contract = this.pendingContract;
+      const isOnlyUpDown = contract.tradeType === 'ONLY_UP' || contract.tradeType === 'ONLY_DOWN';
+      const isHighLowTick =
+        contract.tradeType === 'HIGH_TICK' || contract.tradeType === 'LOW_TICK';
+
+      if (contract.durationUnit === 't') {
+        if (contract.hasSkipTick && !contract.skippedOnce) {
+          contract.skippedOnce = true;
+          return;
+        }
+
+        if (isOnlyUpDown) {
+          const prevQuote = contract.lastObservedQuote;
+          if (tick.quote <= prevQuote) contract.allStrictUp = false;
+          if (tick.quote >= prevQuote) contract.allStrictDown = false;
+          contract.lastObservedQuote = tick.quote;
+        } else if (isHighLowTick) {
+          contract.observedQuotes.push(tick.quote);
+          contract.lastObservedQuote = tick.quote;
+        }
+
+        contract.ticksRemaining -= 1;
+        if (contract.ticksRemaining > 0) {
+          return;
+        }
+
+        this.pendingContract = null;
+        this.executeStrategyOutcome(tick, allTicks, contract, marketId);
+        return;
+      } else {
+        const prevQuote = contract.lastObservedQuote;
+        if (tick.quote <= prevQuote) contract.allStrictUp = false;
+        if (tick.quote >= prevQuote) contract.allStrictDown = false;
+        contract.lastObservedQuote = tick.quote;
+
+        const nowMs = Date.now();
+        const endTime =
+          contract.endTime ||
+          contract.startTime +
+            contract.duration * (contract.durationUnit === 'm' ? 60000 : 1000);
+        if (nowMs < endTime) {
+          return;
+        }
+
+        this.pendingContract = null;
+        this.executeStrategyOutcome(tick, allTicks, contract, marketId);
         return;
       }
-      // This tick is the exit tick!
-      const contract = this.pendingContract;
-      this.pendingContract = null;
-      this.executeStrategyOutcome(
-        tick,
-        allTicks,
-        contract.entryTick,
-        contract.stake,
-        contract.tradeType,
-        contract.predictionDigit,
-        contract.predictionText,
-        contract.payoutMultiplier,
-        marketId
-      );
-      return;
     }
 
-    // 2. Evaluate Entry Condition using ticks before the current tick
-    // - 'reanalyse' (default): checks entry condition before every single trade
-    // - 'continuous': checks entry condition once, then trades continuously without re-analysing
-    const priorTicks = allTicks.slice(0, -1);
-    const isContinuous = this.config.executionMode === 'continuous';
+    // 2. Evaluate Entry Condition:
+    // High/Low, Rise/Fall, and Only Up/Only Down ALWAYS run continuously once an entry is found.
+    const isDirectionalContinuous = isContinuousDirectionalContract(this.config.tradeType);
+    const isContinuous = isDirectionalContinuous || this.config.executionMode === 'continuous';
+
     if (!isContinuous || !this.analysisTriggered) {
-      if (!this.checkEntryCondition(priorTicks, digitStats, ratioStats)) {
+      if (!this.checkEntryCondition(allTicks, digitStats, ratioStats)) {
         return;
       }
       if (isContinuous) {
@@ -403,74 +587,40 @@ export class BotExecutor {
       }
     }
 
-    // Determine signal details
-    const tradeType = this.config.tradeType;
-    const predictionDigit = this.config.predictionDigit;
-    const payoutMultiplier = this.getPayoutMultiplier(tradeType, predictionDigit);
+    // Fast 1-tick digit mode resolves immediately if prior tick exists; multi-tick & directional contracts open at current tick and resolve across live incoming ticks
+    const isFastImmediateDigit =
+      this.config.botSpeed === 'fast' &&
+      !isDirectionalContinuous &&
+      (this.config.durationUnit || 't') === 't' &&
+      Math.max(1, Math.round(this.config.duration || 1)) === 1;
 
-    // Prediction label formatting
-    let predictionText: string;
-    if (tradeType === 'UNDER') {
-      predictionText = `Under ${predictionDigit}`;
-    } else if (tradeType === 'OVER') {
-      predictionText = `Over ${predictionDigit}`;
-    } else if (tradeType === 'DIFFERS') {
-      predictionText = `Differs ${predictionDigit}`;
-    } else if (tradeType === 'MATCHES') {
-      predictionText = `Matches ${predictionDigit}`;
-    } else {
-      predictionText = tradeType.replace('_', ' ');
-    }
-
-    // Check balance
-    const stakeToUse = Math.min(this.balance, Math.max(0.35, this.currentStake));
-    if (this.balance < stakeToUse) {
-      this.stop('Insufficient balance to place stake');
+    if (isFastImmediateDigit) {
+      if (!this.openStrategyContract(allTicks.length > 1 ? allTicks[allTicks.length - 2] : tick)) {
+        return;
+      }
+      const contract = this.pendingContract!;
+      this.pendingContract = null;
+      this.executeStrategyOutcome(tick, allTicks, contract, marketId);
       return;
     }
 
-    const isNormalSpeed = (this.config.botSpeed || 'normal') === 'normal';
-    if (isNormalSpeed) {
-      // Normal mode: Record entry tick, skip 1 tick, then exit on the next tick
-      this.pendingContract = {
-        entryTick: tick,
-        stake: stakeToUse,
-        ticksRemaining: 2,
-        predictionText,
-        payoutMultiplier,
-        tradeType,
-        predictionDigit,
-      };
-      return;
-    }
+    this.openStrategyContract(tick);
+  }
 
-    // Fast mode: Trades every tick!
-    const prevTick = priorTicks.length > 0 ? priorTicks[priorTicks.length - 1] : tick;
-    this.executeStrategyOutcome(
-      tick,
-      allTicks,
-      prevTick,
-      stakeToUse,
+  private executeStrategyOutcome(
+    tick: Tick,
+    allTicks: Tick[],
+    contract: PendingStrategyContract,
+    marketId: string
+  ) {
+    const {
+      entryTick,
+      stake: stakeToUse,
       tradeType,
       predictionDigit,
       predictionText,
       payoutMultiplier,
-      marketId
-    );
-  }
-
-  // Executes the strategy outcome on exit tick
-  private executeStrategyOutcome(
-    tick: Tick,
-    allTicks: Tick[],
-    entryTick: Tick,
-    stakeToUse: number,
-    tradeType: BotStrategyConfig['tradeType'],
-    predictionDigit: number,
-    predictionText: string,
-    payoutMultiplier: number,
-    marketId: string
-  ) {
+    } = contract;
     const digit = tick.lastDigit;
     const prevQuote = entryTick ? entryTick.quote : tick.quote;
     let won = false;
@@ -496,17 +646,17 @@ export class BotExecutor {
         break;
       case 'RISE':
       case 'HIGHER':
-        won = tick.quote > prevQuote || tick.direction === 'up';
+        won = tick.quote > prevQuote;
         break;
       case 'FALL':
       case 'LOWER':
-        won = tick.quote < prevQuote || tick.direction === 'down';
+        won = tick.quote < prevQuote;
         break;
       case 'ONLY_UP':
-        won = tick.direction === 'up' || tick.change > 0;
+        won = contract.allStrictUp;
         break;
       case 'ONLY_DOWN':
-        won = tick.direction === 'down' || tick.change < 0;
+        won = contract.allStrictDown;
         break;
       case 'RESET_CALL':
         won = tick.quote >= prevQuote;
@@ -515,40 +665,60 @@ export class BotExecutor {
         won = tick.quote <= prevQuote;
         break;
       case 'HIGH_TICK': {
-        const lastQuotes = allTicks.slice(-6).map((t) => t.quote);
-        won = tick.quote >= Math.max(...lastQuotes);
+        const targetTick = Math.min(5, Math.max(1, Math.round(predictionDigit || 5)));
+        const windowQuotes =
+          contract.observedQuotes.length >= 5
+            ? contract.observedQuotes.slice(0, 5)
+            : allTicks.slice(-5).map((t) => t.quote);
+        const chosenQuote = windowQuotes[targetTick - 1];
+        won =
+          chosenQuote !== undefined &&
+          windowQuotes.length >= 5 &&
+          windowQuotes.every((q, idx) => idx === targetTick - 1 || chosenQuote > q);
         break;
       }
       case 'LOW_TICK': {
-        const lastQuotes = allTicks.slice(-6).map((t) => t.quote);
-        won = tick.quote <= Math.min(...lastQuotes);
+        const targetTick = Math.min(5, Math.max(1, Math.round(predictionDigit || 5)));
+        const windowQuotes =
+          contract.observedQuotes.length >= 5
+            ? contract.observedQuotes.slice(0, 5)
+            : allTicks.slice(-5).map((t) => t.quote);
+        const chosenQuote = windowQuotes[targetTick - 1];
+        won =
+          chosenQuote !== undefined &&
+          windowQuotes.length >= 5 &&
+          windowQuotes.every((q, idx) => idx === targetTick - 1 || chosenQuote < q);
         break;
       }
       case 'STAY_BETWEEN': {
-        const diff = Math.abs(tick.change);
+        const diff = Math.abs(tick.quote - prevQuote);
         const threshold = Math.abs(prevQuote) * 0.00035;
         won = diff <= threshold;
         break;
       }
       case 'GOES_OUTSIDE': {
-        const diff = Math.abs(tick.change);
+        const diff = Math.abs(tick.quote - prevQuote);
         const threshold = Math.abs(prevQuote) * 0.00035;
         won = diff > threshold;
         break;
       }
       case 'TOUCH':
-        won = Math.abs(tick.change) > 0;
+        won = Math.abs(tick.quote - prevQuote) > 0;
         break;
       case 'NO_TOUCH':
-        won = tick.direction === 'flat' || Math.abs(tick.change) === 0;
+        won = Math.abs(tick.quote - prevQuote) === 0;
         break;
       case 'ASIAN_UP': {
-        const avg = allTicks.slice(-5).reduce((acc, c) => acc + c.quote, 0) / Math.min(5, allTicks.length || 1);
+        const avg =
+          allTicks.slice(-5).reduce((acc, c) => acc + c.quote, 0) /
+          Math.min(5, allTicks.length || 1);
         won = tick.quote > avg;
         break;
       }
       case 'ASIAN_DOWN': {
-        const avg = allTicks.slice(-5).reduce((acc, c) => acc + c.quote, 0) / Math.min(5, allTicks.length || 1);
+        const avg =
+          allTicks.slice(-5).reduce((acc, c) => acc + c.quote, 0) /
+          Math.min(5, allTicks.length || 1);
         won = tick.quote < avg;
         break;
       }
@@ -556,13 +726,15 @@ export class BotExecutor {
         won = digit > predictionDigit;
     }
 
-    const profit = won ? stakeToUse * (payoutMultiplier - 1) : -stakeToUse;
+    const rawProfit = won ? stakeToUse * (payoutMultiplier - 1) : -stakeToUse;
+    const profit = Number(rawProfit.toFixed(2));
     this.balance = Number((this.balance + profit).toFixed(2));
+    const initialStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
 
     if (won) {
       this.consecutiveWins++;
       this.consecutiveLosses = 0;
-      this.currentStake = this.config.initialStake;
+      this.currentStake = initialStake;
       this.currentStep = 0;
       soundManager.playWin();
     } else {
@@ -570,18 +742,18 @@ export class BotExecutor {
       this.consecutiveWins = 0;
       this.currentStep++;
 
-      // Martingale logic with max steps
-      if (this.currentStep < this.config.maxSteps) {
-        this.currentStake = Number((stakeToUse * this.config.martingale).toFixed(2));
+      const maxSteps = Math.max(1, Number(this.config.maxSteps) || 1);
+      const mg = Math.max(1, Number(this.config.martingale) || 1.5);
+      if (this.currentStep < maxSteps) {
+        this.currentStake = Number((stakeToUse * mg).toFixed(2));
       } else {
-        // Reset stake after max steps reached to protect capital
-        this.currentStake = this.config.initialStake;
+        this.currentStake = initialStake;
         this.currentStep = 0;
       }
       soundManager.playLoss();
     }
 
-    // Update metrics
+    this.sessionProfit = Number((this.sessionProfit + profit).toFixed(2));
     const totalTrades = this.metrics.totalTrades + 1;
     const wins = this.metrics.wins + (won ? 1 : 0);
     const losses = this.metrics.losses + (won ? 0 : 1);
@@ -589,7 +761,8 @@ export class BotExecutor {
     const winRate = Number(((wins / totalTrades) * 100).toFixed(1));
 
     const peak = Math.max(this.metrics.peakBalance, this.balance);
-    const currentDrawdown = peak > 0 ? Number((((peak - this.balance) / peak) * 100).toFixed(2)) : 0;
+    const currentDrawdown =
+      peak > 0 ? Number((((peak - this.balance) / peak) * 100).toFixed(2)) : 0;
     const maxDrawdown = Math.max(this.metrics.maxDrawdown, currentDrawdown);
 
     this.metrics = {
@@ -598,6 +771,8 @@ export class BotExecutor {
       losses,
       winRate,
       totalProfit,
+      sessionProfit: this.sessionProfit,
+      lastStopReason: this.lastStopReason,
       currentStreak: {
         type: won ? 'win' : 'loss',
         count: won ? this.consecutiveWins : this.consecutiveLosses,
@@ -614,10 +789,10 @@ export class BotExecutor {
       contractType: tradeType,
       prediction: predictionText,
       stake: stakeToUse,
-      entryPrice: tick.quote,
+      entryPrice: entryTick.quote,
       exitPrice: tick.quote,
       exitDigit: digit,
-      profit: Number(profit.toFixed(2)),
+      profit,
       status: won ? 'won' : 'lost',
       balanceAfter: this.balance,
       botSource: this.botSource,
@@ -628,6 +803,23 @@ export class BotExecutor {
       this.trades.pop();
     }
 
-    this.onTradeListeners.forEach((l) => l(tradeRecord, this.metrics, this.balance));
+    this.onTradeListeners.forEach((l) => l(tradeRecord, this.getMetrics(), this.balance));
+
+    // Immediately enforce Session Take Profit & Stop Loss upon trade resolution
+    if (this.checkTpSlAndStop()) {
+      return;
+    }
+
+    // For High/Low, Rise/Fall, Only Up/Only Down (or continuous mode in Fast speed), chain the next contract immediately
+    if (
+      this.isRunning &&
+      !this.isPaused &&
+      (isContinuousDirectionalContract(this.config.tradeType) ||
+        (this.config.executionMode === 'continuous' && this.config.botSpeed === 'fast'))
+    ) {
+      if (isContinuousDirectionalContract(this.config.tradeType)) {
+        this.openStrategyContract(tick);
+      }
+    }
   }
 }

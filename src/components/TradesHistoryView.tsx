@@ -14,7 +14,9 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
   onClearHistory,
 }) => {
   const [filterType, setFilterType] = useState<string>('all');
-  const [botFilter, setBotFilter] = useState<'all' | 'digits' | 'charts' | 'normal' | 'xml'>('all');
+  const [botFilter, setBotFilter] = useState<
+    'all' | 'digits' | 'charts' | 'normal' | 'entry' | 'evenodd' | 'xml'
+  >('all');
 
   const filteredTrades = trades.filter((t) => {
     if (botFilter !== 'all' && t.botSource && t.botSource !== botFilter) {
@@ -169,6 +171,28 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
               <span>Strategy Bot ({trades.filter((t) => t.botSource === 'charts').length})</span>
             </button>
             <button
+              onClick={() => setBotFilter('entry')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                botFilter === 'entry'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.4)]'
+                  : 'text-slate-400 hover:text-[#00FFFF]'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${botFilter === 'entry' ? 'bg-slate-950' : 'bg-[#00FFFF]'}`} />
+              <span>Entry Bot ({trades.filter((t) => t.botSource === 'entry').length})</span>
+            </button>
+            <button
+              onClick={() => setBotFilter('evenodd')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                botFilter === 'evenodd'
+                  ? 'bg-[#00FFFF] text-slate-950 font-black shadow-[0_0_10px_rgba(0,255,255,0.4)]'
+                  : 'text-slate-400 hover:text-[#00FFFF]'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${botFilter === 'evenodd' ? 'bg-slate-950' : 'bg-[#00FFFF]'}`} />
+              <span>EvenOdd Bot ({trades.filter((t) => t.botSource === 'evenodd').length})</span>
+            </button>
+            <button
               onClick={() => setBotFilter('xml')}
               className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
                 botFilter === 'xml'
@@ -230,9 +254,13 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
                   </td>
                   <td className="py-2.5 px-3">
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider whitespace-nowrap ${
                         t.botSource === 'signal'
                           ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                          : t.botSource === 'entry'
+                          ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                          : t.botSource === 'evenodd'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           : t.botSource === 'xml'
                           ? 'bg-sky-50 text-sky-700 border border-sky-200'
                           : t.botSource === 'normal'
@@ -244,6 +272,10 @@ export const TradesHistoryView: React.FC<TradesHistoryViewProps> = ({
                     >
                       {t.botSource === 'signal'
                         ? 'Signals'
+                        : t.botSource === 'entry'
+                        ? 'Entry Bot'
+                        : t.botSource === 'evenodd'
+                        ? 'EvenOdd Bot'
                         : t.botSource === 'xml'
                         ? 'XML Bot'
                         : t.botSource === 'normal'

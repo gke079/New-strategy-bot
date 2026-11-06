@@ -95,37 +95,6 @@ export const TickCard: React.FC<TickCardProps> = ({
           }`}
         />
 
-        {/* Top Meta Bar: Live Deriv Status vs Calibrated Feed */}
-        <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-800/60">
-          <div className="flex items-center gap-2">
-            {isLiveFeed ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono shadow-[0_0_12px_rgba(16,185,129,0.25)]">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                Real Deriv Live Feed
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/25 font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                Connecting Real Deriv Feed...
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {onOpenApiModal && (
-              <button
-                type="button"
-                onClick={onOpenApiModal}
-                className="text-[10px] text-slate-400 hover:text-[#00e599] transition-colors flex items-center gap-1 font-mono cursor-pointer"
-                title="Configure Deriv App ID and WebSocket endpoints"
-              >
-                <Wifi className="w-3 h-3 text-[#00e599]" />
-                <span className="hidden sm:inline">Deriv API</span>
-              </button>
-            )}
-          </div>
-        </div>
-
         <div className="flex items-center justify-between gap-4">
           {/* Left: Direction indicator & change */}
           <div className="flex items-center gap-3">
@@ -152,34 +121,24 @@ export const TickCard: React.FC<TickCardProps> = ({
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   {market.symbol} Live Price
                 </span>
-                {!isLiveFeed && (
-                  <button
-                    type="button"
-                    onClick={() => setIsCalibrateOpen(true)}
-                    className="text-[10px] text-indigo-400 hover:text-indigo-300 underline font-mono cursor-pointer"
-                    title="Click to calibrate this price to your Deriv terminal"
-                  >
-                    (edit)
-                  </button>
-                )}
               </div>
               <div className="flex items-baseline gap-1.5">
-                <span className="font-mono text-xl sm:text-2xl font-bold tracking-tight text-white">
+                <span className="font-mono text-xl sm:text-2xl font-bold tracking-tight text-white tabular-nums">
                   {mainPart}
                 </span>
-                <span className="font-mono text-2xl sm:text-3xl font-black text-[#a855f7] underline decoration-[#a855f7]/40 decoration-2 underline-offset-4 animate-in zoom-in-75 duration-100">
+                <span className="font-mono text-2xl sm:text-3xl font-black text-[#a855f7] underline decoration-[#a855f7]/40 decoration-2 underline-offset-4 animate-in zoom-in-75 duration-100 tabular-nums">
                   {lastChar}
                 </span>
               </div>
             </div>
           </div>
 
-          {/* Right: Last digit prominent badge & direction pill */}
+          {/* Right: Last digit prominent badge & direction */}
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
               <div className="text-[11px] text-slate-400 uppercase font-semibold">Change</div>
               <div
-                className={`font-mono text-xs font-semibold ${
+                className={`font-mono text-xs font-semibold tabular-nums ${
                   currentTick.change > 0
                     ? 'text-emerald-400'
                     : currentTick.change < 0
@@ -196,7 +155,7 @@ export const TickCard: React.FC<TickCardProps> = ({
               <span className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">
                 Last Digit
               </span>
-              <span className="text-2xl font-black text-[#a855f7] font-mono leading-none mt-0.5">
+              <span className="text-2xl font-black text-[#a855f7] font-mono leading-none mt-0.5 tabular-nums">
                 {currentTick.lastDigit}
               </span>
             </div>

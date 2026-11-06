@@ -1,5 +1,6 @@
 import {
   BotMetrics,
+  isContinuousDirectionalContract,
   Tick,
   Trade,
   TradeContractType,
@@ -22,6 +23,9 @@ interface ActiveXmlContract {
   startTime: number;
   endTime?: number;
   observedQuotes?: number[];
+  allStrictUp?: boolean;
+  allStrictDown?: boolean;
+  lastQuote?: number;
 }
 
 export class XmlBotExecutor {
@@ -32,11 +36,14 @@ export class XmlBotExecutor {
   private consecutiveWins: number = 0;
   private cooldownRemaining: number = 0;
   private useAlternateNext: boolean = false;
+  private entryConfirmed: boolean = false;
   private activeContract: ActiveXmlContract | null = null;
   private stage: XmlBotStage = 'idle';
   private isRunning: boolean = false;
   private isPaused: boolean = false;
   private balance: number = 10000;
+  private sessionProfit: number = 0;
+  private lastStopReason: string = '';
   private trades: Trade[] = [];
   private journal: XmlJournalEntry[] = [];
   private metrics: BotMetrics = {
@@ -45,6 +52,7 @@ export class XmlBotExecutor {
     losses: 0,
     winRate: 0,
     totalProfit: 0,
+    sessionProfit: 0,
     currentStreak: { type: null, count: 0 },
     maxDrawdown: 0,
     peakBalance: 10000,
@@ -56,15 +64,29 @@ export class XmlBotExecutor {
 
   constructor(config: XmlBotConfig, initialBalance: number = 10000) {
     this.config = { ...config };
-    this.currentStake = config.initialStake;
-    this.balance = initialBalance;
-    this.metrics.peakBalance = initialBalance;
+    this.currentStake = Math.max(0.35, Number(config.initialStake) || 0.35);
+    const safeBalance = initialBalance > 0 ? initialBalance : 10000;
+    this.balance = safeBalance;
+    this.metrics.peakBalance = safeBalance;
   }
 
   public updateConfig(newConfig: Partial<XmlBotConfig>) {
+    const conditionChanged =
+      (newConfig.contractType !== undefined && newConfig.contractType !== this.config.contractType) ||
+      (newConfig.purchaseCondition !== undefined &&
+        newConfig.purchaseCondition !== this.config.purchaseCondition) ||
+      (newConfig.conditionValue !== undefined &&
+        newConfig.conditionValue !== this.config.conditionValue) ||
+      (newConfig.conditionStreakCount !== undefined &&
+        newConfig.conditionStreakCount !== this.config.conditionStreakCount) ||
+      (newConfig.marketId !== undefined && newConfig.marketId !== this.config.marketId);
+
     this.config = { ...this.config, ...newConfig };
+    if (conditionChanged && !this.activeContract) {
+      this.entryConfirmed = false;
+    }
     if (!this.isRunning && newConfig.initialStake !== undefined) {
-      this.currentStake = newConfig.initialStake;
+      this.currentStake = Math.max(0.35, Number(newConfig.initialStake) || 0.35);
       this.currentStep = 0;
     }
   }
@@ -74,8 +96,10 @@ export class XmlBotExecutor {
   }
 
   public setBalance(balance: number) {
-    this.balance = balance;
-    this.metrics.peakBalance = Math.max(this.metrics.peakBalance, balance);
+    if (balance <= 0 && this.isRunning) return;
+    const safeBalance = balance > 0 ? balance : this.balance > 0 ? this.balance : 10000;
+    this.balance = safeBalance;
+    this.metrics.peakBalance = Math.max(this.metrics.peakBalance, safeBalance);
   }
 
   public getStatus(): boolean {
@@ -99,7 +123,11 @@ export class XmlBotExecutor {
   }
 
   public getMetrics(): BotMetrics {
-    return { ...this.metrics };
+    return {
+      ...this.metrics,
+      sessionProfit: this.sessionProfit,
+      lastStopReason: this.lastStopReason || undefined,
+    };
   }
 
   public getJournal(): XmlJournalEntry[] {
@@ -107,10 +135,19 @@ export class XmlBotExecutor {
   }
 
   public start() {
+    if (this.balance <= 0) {
+      this.balance = 10000;
+      this.metrics.peakBalance = Math.max(this.metrics.peakBalance, 10000);
+    }
     this.isRunning = true;
     this.isPaused = false;
     this.activeContract = null;
-    this.currentStake = this.config.initialStake;
+    this.entryConfirmed = false;
+    this.sessionProfit = 0;
+    this.lastStopReason = '';
+    this.metrics.sessionProfit = 0;
+    this.metrics.lastStopReason = undefined;
+    this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
     this.currentStep = 0;
     this.cooldownRemaining = 0;
     this.useAlternateNext = false;
@@ -142,6 +179,9 @@ export class XmlBotExecutor {
     this.isRunning = false;
     this.isPaused = false;
     this.activeContract = null;
+    this.entryConfirmed = false;
+    this.lastStopReason = reason;
+    this.metrics.lastStopReason = reason;
     this.stage = 'idle';
     this.log('idle', 'warn', `Bot stopped: ${reason}`);
     this.notifyState();
@@ -151,7 +191,10 @@ export class XmlBotExecutor {
     this.trades = [];
     this.journal = [];
     this.activeContract = null;
-    this.currentStake = this.config.initialStake;
+    this.entryConfirmed = false;
+    this.sessionProfit = 0;
+    this.lastStopReason = '';
+    this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
     this.currentStep = 0;
     this.consecutiveLosses = 0;
     this.consecutiveWins = 0;
@@ -163,6 +206,7 @@ export class XmlBotExecutor {
       losses: 0,
       winRate: 0,
       totalProfit: 0,
+      sessionProfit: 0,
       currentStreak: { type: null, count: 0 },
       maxDrawdown: 0,
       peakBalance: this.balance,
@@ -190,6 +234,23 @@ export class XmlBotExecutor {
     this.onStatusListeners.forEach((cb) => cb(this.isRunning, this.isPaused, this.stage));
   }
 
+  private checkTpSlAndStop(): boolean {
+    const tp = Number(this.config.takeProfit);
+    const sl = Math.abs(Number(this.config.stopLoss));
+    if (tp > 0 && this.sessionProfit >= tp - 1e-6) {
+      try {
+        confetti({ particleCount: 100, spread: 75, origin: { y: 0.6 } });
+      } catch {}
+      this.stop(`Take Profit reached (+$${this.sessionProfit.toFixed(2)})`);
+      return true;
+    }
+    if (sl > 0 && this.sessionProfit <= -(sl - 1e-6)) {
+      this.stop(`Stop Loss reached (-$${Math.abs(this.sessionProfit).toFixed(2)})`);
+      return true;
+    }
+    return false;
+  }
+
   private log(stage: XmlBotStage, level: XmlJournalEntry['level'], message: string) {
     const entry: XmlJournalEntry = {
       id: 'JRN-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
@@ -208,10 +269,17 @@ export class XmlBotExecutor {
   public evaluateTick(tick: Tick, allTicks: Tick[], activeMarketId: string) {
     if (!this.isRunning || this.isPaused) return;
 
+    if (this.checkTpSlAndStop()) return;
+
     // 1. Check active contract (Stage 3: During Purchase)
     if (this.activeContract) {
       this.stage = 'during_purchase';
       const contract = this.activeContract;
+
+      const prevQuote = contract.lastQuote ?? contract.entryTick.quote;
+      if (tick.quote <= prevQuote) contract.allStrictUp = false;
+      if (tick.quote >= prevQuote) contract.allStrictDown = false;
+      contract.lastQuote = tick.quote;
 
       const isHighLowTick =
         contract.contractType === 'HIGH_TICK' || contract.contractType === 'LOW_TICK';
@@ -220,8 +288,15 @@ export class XmlBotExecutor {
         contract.observedQuotes.push(tick.quote);
       }
 
-      // Optional Early Sell at Profit during multi-tick / timed contracts (not supported on High/Low Tick)
-      if (!isHighLowTick && this.config.enableSellAtProfit && contract.ticksRemaining > 1) {
+      // Optional Early Sell at Profit during multi-tick / timed contracts (not supported on High/Low Tick or Only Up/Down)
+      const isOnlyUpDown =
+        contract.contractType === 'ONLY_UP' || contract.contractType === 'ONLY_DOWN';
+      if (
+        !isHighLowTick &&
+        !isOnlyUpDown &&
+        this.config.enableSellAtProfit &&
+        contract.ticksRemaining > 1
+      ) {
         const floatingWin = this.checkWinCondition(
           contract.contractType,
           contract.prediction,
@@ -237,7 +312,16 @@ export class XmlBotExecutor {
               `Sold contract at market early (+$${estProfit.toFixed(2)} >= $${this.config.sellProfitThreshold.toFixed(2)})`
             );
             this.activeContract = null;
-            this.finalizeTrade(true, contract.stake, contract.entryTick, tick, activeMarketId, estProfit);
+            this.finalizeTrade(
+              true,
+              contract.stake,
+              contract.entryTick,
+              tick,
+              activeMarketId,
+              estProfit,
+              contract.contractType,
+              contract.prediction
+            );
             return;
           }
         }
@@ -257,8 +341,10 @@ export class XmlBotExecutor {
       return;
     }
 
-    // 2. Cooldown check
-    if (this.cooldownRemaining > 0) {
+    const isContinuousDirectional = isContinuousDirectionalContract(this.config.contractType);
+
+    // 2. Cooldown check (continuous directional contracts run immediately after entry is found)
+    if (!isContinuousDirectional && this.cooldownRemaining > 0) {
       this.cooldownRemaining -= 1;
       return;
     }
@@ -267,15 +353,41 @@ export class XmlBotExecutor {
     this.stage = 'before_purchase';
     this.notifyState();
 
-    const matched = this.evaluateBeforePurchaseCondition(tick, allTicks);
-    if (!matched) return;
+    if (!(isContinuousDirectional && this.entryConfirmed)) {
+      const matched = this.evaluateBeforePurchaseCondition(tick, allTicks);
+      if (!matched) return;
+      if (isContinuousDirectional) {
+        this.entryConfirmed = true;
+        this.log(
+          'before_purchase',
+          'info',
+          `Entry confirmed for ${this.config.contractType} — running continuous execution until TP/SL or Stop.`
+        );
+      }
+    }
 
     // 4. Purchase Contract
-    const stakeToUse = Math.min(this.balance, Math.max(0.35, Number(this.currentStake.toFixed(2))));
-    if (this.balance < stakeToUse) {
+    this.openContract(tick);
+  }
+
+  private openContract(tick: Tick) {
+    if (!this.isRunning || this.isPaused) return;
+    if (this.checkTpSlAndStop()) return;
+
+    if (this.balance <= 0 && this.metrics.totalTrades === 0) {
+      this.balance = 10000;
+      this.metrics.peakBalance = Math.max(this.metrics.peakBalance, 10000);
+    }
+
+    const desiredStake = Math.max(
+      0.35,
+      Number((this.currentStake || this.config.initialStake || 0.35).toFixed(2))
+    );
+    if (this.balance < 0.35) {
       this.stop('Insufficient balance to place stake');
       return;
     }
+    const stakeToUse = Number(Math.min(this.balance, desiredStake).toFixed(2));
 
     const activeContractType =
       this.config.alternateContractOnLoss && this.useAlternateNext
@@ -283,8 +395,13 @@ export class XmlBotExecutor {
         : this.config.contractType;
 
     const isHighLowTick = activeContractType === 'HIGH_TICK' || activeContractType === 'LOW_TICK';
-    const unit = isHighLowTick ? 't' : this.config.durationUnit || 't';
-    const rawDur = isHighLowTick ? 5 : Math.max(1, Math.round(this.config.duration || 1));
+    const isOnlyUpDown = activeContractType === 'ONLY_UP' || activeContractType === 'ONLY_DOWN';
+    const unit = isHighLowTick || isOnlyUpDown ? 't' : this.config.durationUnit || 't';
+    const rawDur = isHighLowTick
+      ? 5
+      : isOnlyUpDown
+      ? Math.max(2, Math.min(5, Math.round(this.config.duration || 2)))
+      : Math.max(1, Math.round(this.config.duration || 1));
     const effectivePred = isHighLowTick
       ? Math.max(1, Math.min(5, Math.round(this.config.prediction || 3)))
       : this.config.prediction;
@@ -304,6 +421,9 @@ export class XmlBotExecutor {
       startTime: nowMs,
       endTime,
       observedQuotes: isHighLowTick ? [] : undefined,
+      allStrictUp: true,
+      allStrictDown: true,
+      lastQuote: tick.quote,
     };
 
     this.stage = 'during_purchase';
@@ -378,7 +498,7 @@ export class XmlBotExecutor {
     }
   }
 
-  private getPayoutMultiplier(type: TradeContractType, prediction: number): number {
+  private getPayoutMultiplier(type: TradeContractType, prediction: number, duration: number = 2): number {
     switch (type) {
       case 'OVER':
         return Number((9.5 / Math.max(1, 9 - prediction)).toFixed(3));
@@ -389,8 +509,11 @@ export class XmlBotExecutor {
       case 'MATCHES':
         return 9.0;
       case 'ONLY_UP':
-      case 'ONLY_DOWN':
-        return 3.85;
+      case 'ONLY_DOWN': {
+        const clamped = Math.min(5, Math.max(2, Math.round(duration || 2)));
+        const map: Record<number, number> = { 2: 3.85, 3: 7.8, 4: 15.6, 5: 31.2 };
+        return map[clamped] ?? 3.85;
+      }
       case 'HIGH_TICK':
       case 'LOW_TICK':
         return 4.2;
@@ -456,6 +579,10 @@ export class XmlBotExecutor {
           won = pickedQuote < minOther;
         }
       }
+    } else if (contract.contractType === 'ONLY_UP') {
+      won = contract.allStrictUp !== false && exitTick.quote > contract.entryTick.quote;
+    } else if (contract.contractType === 'ONLY_DOWN') {
+      won = contract.allStrictDown !== false && exitTick.quote < contract.entryTick.quote;
     } else {
       won = this.checkWinCondition(
         contract.contractType,
@@ -473,7 +600,8 @@ export class XmlBotExecutor {
       activeMarketId,
       undefined,
       contract.contractType,
-      contract.prediction
+      contract.prediction,
+      contract.duration
     );
   }
 
@@ -485,7 +613,8 @@ export class XmlBotExecutor {
     activeMarketId: string,
     overrideProfit?: number,
     executedContractType?: TradeContractType,
-    executedPrediction?: number
+    executedPrediction?: number,
+    executedDuration?: number
   ) {
     this.stage = 'after_purchase';
     const contractType =
@@ -495,10 +624,15 @@ export class XmlBotExecutor {
         : this.config.contractType);
     const predDigit = executedPrediction ?? this.config.prediction;
 
-    const mult = this.getPayoutMultiplier(contractType, predDigit);
+    const mult = this.getPayoutMultiplier(
+      contractType,
+      predDigit,
+      executedDuration ?? this.config.duration
+    );
     const profit =
       overrideProfit !== undefined ? overrideProfit : won ? stakeUsed * (mult - 1) : -stakeUsed;
     this.balance = Number((this.balance + profit).toFixed(2));
+    this.sessionProfit = Number((this.sessionProfit + profit).toFixed(2));
 
     if (won) {
       this.consecutiveWins += 1;
@@ -510,18 +644,18 @@ export class XmlBotExecutor {
         if (this.currentStep < this.config.maxMartingaleSteps) {
           this.currentStake = Number((stakeUsed * this.config.martingaleMultiplier).toFixed(2));
         } else {
-          this.currentStake = this.config.initialStake;
+          this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
           this.currentStep = 0;
         }
       } else {
-        this.currentStake = this.config.initialStake;
+        this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
         this.currentStep = 0;
       }
       soundManager.playWin();
       this.log(
         'after_purchase',
         'win',
-        `Contract WON +$${profit.toFixed(2)} (Exit ${exitTick.quoteFormatted} · Digit ${exitTick.lastDigit}) · Next stake $${this.currentStake.toFixed(2)}`
+        `Contract WON +$${profit.toFixed(2)} (Session P/L: ${this.sessionProfit >= 0 ? '+' : ''}$${this.sessionProfit.toFixed(2)}) · Next stake $${this.currentStake.toFixed(2)}`
       );
     } else {
       this.consecutiveLosses += 1;
@@ -533,20 +667,20 @@ export class XmlBotExecutor {
       this.currentStep += 1;
       const maxSteps = Math.max(1, this.config.maxMartingaleSteps || 4);
       if (this.currentStep >= maxSteps && this.config.resetOnMaxSteps) {
-        this.currentStake = this.config.initialStake;
+        this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
         this.currentStep = 0;
       } else if (this.config.lossAction === 'martingale') {
         this.currentStake = Number((stakeUsed * this.config.martingaleMultiplier).toFixed(2));
       } else if (this.config.lossAction === 'dalembert') {
         this.currentStake = Number((stakeUsed + this.config.dalembertUnit).toFixed(2));
       } else {
-        this.currentStake = this.config.initialStake;
+        this.currentStake = Math.max(0.35, Number(this.config.initialStake) || 0.35);
       }
       soundManager.playLoss();
       this.log(
         'after_purchase',
         'loss',
-        `Contract LOST -$${Math.abs(profit).toFixed(2)} (Exit ${exitTick.quoteFormatted} · Digit ${exitTick.lastDigit}) · Next stake $${this.currentStake.toFixed(2)}`
+        `Contract LOST -$${Math.abs(profit).toFixed(2)} (Session P/L: ${this.sessionProfit >= 0 ? '+' : ''}$${this.sessionProfit.toFixed(2)}) · Next stake $${this.currentStake.toFixed(2)}`
       );
     }
 
@@ -564,6 +698,7 @@ export class XmlBotExecutor {
       losses,
       winRate,
       totalProfit,
+      sessionProfit: this.sessionProfit,
       currentStreak: {
         type: won ? 'win' : 'loss',
         count: won ? this.consecutiveWins : this.consecutiveLosses,
@@ -606,24 +741,23 @@ export class XmlBotExecutor {
 
     this.trades.unshift(tradeRecord);
     if (this.trades.length > 200) this.trades.pop();
-    this.onTradeListeners.forEach((cb) => cb(tradeRecord, this.metrics, this.balance));
+    this.onTradeListeners.forEach((cb) => cb(tradeRecord, this.getMetrics(), this.balance));
 
-    // Check Take Profit / Stop Loss / Trade Again
-    if (this.metrics.totalProfit >= this.config.takeProfit) {
-      try {
-        confetti({ particleCount: 100, spread: 75, origin: { y: 0.6 } });
-      } catch {}
-      this.stop(`Take Profit reached (+$${this.metrics.totalProfit.toFixed(2)})`);
+    // Check Take Profit / Stop Loss immediately against Session P/L
+    if (this.checkTpSlAndStop()) {
       return;
     }
 
-    if (this.metrics.totalProfit <= -Math.abs(this.config.stopLoss)) {
-      this.stop(`Stop Loss reached ($${this.metrics.totalProfit.toFixed(2)})`);
-      return;
-    }
+    const isContinuousDirectional = isContinuousDirectionalContract(contractType);
 
-    if (!this.config.tradeAgain) {
+    if (!isContinuousDirectional && !this.config.tradeAgain) {
       this.stop('Single cycle completed (trade_again disabled)');
+      return;
+    }
+
+    if (isContinuousDirectional) {
+      this.cooldownRemaining = 0;
+      this.openContract(exitTick);
       return;
     }
 

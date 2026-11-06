@@ -289,3 +289,126 @@ export const AVAILABLE_INDICATORS: Omit<ActiveIndicator, 'id' | 'visible'>[] = [
     params: {},
   },
 ];
+
+export type MacdHistogramState =
+  | 'long_dark_red'
+  | 'faded_red'
+  | 'short_dark_green'
+  | 'long_dark_green'
+  | 'faded_green'
+  | 'neutral';
+
+export interface MacdHistogramAnalysis {
+  state: MacdHistogramState;
+  stateLabel: string;
+  isGoodMarketForOnlyUp: boolean;
+  colorHex: string;
+  textColorClass: string;
+  currentHistogram: number;
+  previousHistogram: number;
+  reason: string;
+}
+
+export function evaluateMacdHistogram(
+  histogram: (number | null)[]
+): MacdHistogramAnalysis {
+  const valid = histogram.filter((v): v is number => v !== null && !isNaN(v));
+  if (valid.length < 2) {
+    return {
+      state: 'neutral',
+      stateLabel: 'Insufficient Data',
+      isGoodMarketForOnlyUp: false,
+      colorHex: '#64748b',
+      textColorClass: 'text-slate-400',
+      currentHistogram: 0,
+      previousHistogram: 0,
+      reason: 'Calculating MACD histogram...',
+    };
+  }
+
+  const curr = valid[valid.length - 1];
+  const prev = valid[valid.length - 2];
+
+  // Average absolute magnitude over recent bars to differentiate short vs long
+  const sample = valid.slice(-15);
+  const avgAbs = sample.reduce((sum, v) => sum + Math.abs(v), 0) / sample.length || 0.0001;
+
+  if (curr < 0) {
+    if (curr <= prev) {
+      // Long / Dark Red (negative and falling deeper or deep bottom)
+      return {
+        state: 'long_dark_red',
+        stateLabel: 'Long Dark Red',
+        isGoodMarketForOnlyUp: false,
+        colorHex: '#b91c1c',
+        textColorClass: 'text-red-500',
+        currentHistogram: curr,
+        previousHistogram: prev,
+        reason: 'Falling bearish momentum. Ineligible for Only Up trade.',
+      };
+    } else {
+      // Faded Red (negative, but rising towards zero / recovering)
+      return {
+        state: 'faded_red',
+        stateLabel: 'Faded Red',
+        isGoodMarketForOnlyUp: true,
+        colorHex: '#f87171',
+        textColorClass: 'text-rose-400',
+        currentHistogram: curr,
+        previousHistogram: prev,
+        reason: 'Upward hook / Bullish recovery. Very good market to trade Only Up.',
+      };
+    }
+  } else if (curr > 0) {
+    if (curr < prev) {
+      // Faded Green (positive, but contracting / losing momentum)
+      return {
+        state: 'faded_green',
+        stateLabel: 'Faded Green',
+        isGoodMarketForOnlyUp: false,
+        colorHex: '#86efac',
+        textColorClass: 'text-emerald-300 opacity-60',
+        currentHistogram: curr,
+        previousHistogram: prev,
+        reason: 'Declining positive momentum. No trades allowed for faded green histograms.',
+      };
+    } else {
+      // Dark Green (positive and expanding)
+      const isShort = curr <= avgAbs * 1.6 || prev <= 0;
+      if (isShort) {
+        return {
+          state: 'short_dark_green',
+          stateLabel: 'Short Dark Green',
+          isGoodMarketForOnlyUp: true,
+          colorHex: '#15803d',
+          textColorClass: 'text-emerald-500',
+          currentHistogram: curr,
+          previousHistogram: prev,
+          reason: 'Early bullish expansion. Very good market to trade Only Up.',
+        };
+      } else {
+        return {
+          state: 'long_dark_green',
+          stateLabel: 'Long Dark Green',
+          isGoodMarketForOnlyUp: false,
+          colorHex: '#16a34a',
+          textColorClass: 'text-emerald-400',
+          currentHistogram: curr,
+          previousHistogram: prev,
+          reason: 'Extended positive momentum peak. Waiting for lower risk entry.',
+        };
+      }
+    }
+  }
+
+  return {
+    state: 'neutral',
+    stateLabel: 'Zero Line',
+    isGoodMarketForOnlyUp: false,
+    colorHex: '#94a3b8',
+    textColorClass: 'text-slate-400',
+    currentHistogram: 0,
+    previousHistogram: 0,
+    reason: 'Histogram is at zero line.',
+  };
+}

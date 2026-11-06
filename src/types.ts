@@ -139,7 +139,54 @@ export interface Trade {
   profit: number;
   status: 'won' | 'lost';
   balanceAfter: number;
-  botSource?: 'digits' | 'charts' | 'normal' | 'xml' | 'signal';
+  botSource?: 'digits' | 'charts' | 'normal' | 'entry' | 'evenodd' | 'xml' | 'signal';
+}
+
+export type BotSubTab = 'normal' | 'strategy' | 'entry' | 'evenodd';
+
+export type EntryBotTriggerMode = 'every_cycle' | 'once_continuous';
+
+export interface EntryBotConfig {
+  id: string;
+  name: string;
+  marketId: string;
+  contractType1: 'OVER' | 'UNDER' | 'DIFFERS' | 'MATCHES';
+  prediction1: number;
+  contractType2: 'OVER' | 'UNDER' | 'DIFFERS' | 'MATCHES';
+  prediction2: number;
+  searchNumber: number;
+  entryTriggerMode: EntryBotTriggerMode;
+  stake: number;
+  initialStake: number;
+  duration: number;
+  durationUnit: 't' | 's' | 'm';
+  takeProfit: number;
+  stopLoss: number;
+  martingale: number;
+  martingaleLevel: number;
+  botSpeed?: 'normal' | 'fast';
+  active: boolean;
+}
+
+export type EvenOddStrategyId = 'S1' | 'S2';
+
+export interface EvenOddBotConfig {
+  id: string;
+  name: string;
+  marketId: string;
+  marketSide: 'EVEN' | 'ODD';
+  strategy: EvenOddStrategyId;
+  executionMode: 'continuous' | 'per_trade';
+  stake: number;
+  initialStake: number;
+  duration: number;
+  durationUnit: 't' | 's' | 'm';
+  takeProfit: number;
+  stopLoss: number;
+  martingale: number;
+  martingaleLevel: number;
+  botSpeed?: 'normal' | 'fast';
+  active: boolean;
 }
 
 export type XmlConditionOperator =
@@ -214,6 +261,21 @@ export interface XmlBotConfig {
   rawImportedXml?: string;
 }
 
+export const CONTINUOUS_DIRECTIONAL_CONTRACTS: readonly TradeContractType[] = [
+  'RISE',
+  'FALL',
+  'HIGHER',
+  'LOWER',
+  'HIGH_TICK',
+  'LOW_TICK',
+  'ONLY_UP',
+  'ONLY_DOWN',
+];
+
+export function isContinuousDirectionalContract(type: TradeContractType): boolean {
+  return CONTINUOUS_DIRECTIONAL_CONTRACTS.includes(type);
+}
+
 export type SignalEntryTrigger =
   | 'immediate'
   | 'even_after_2_odd_confirm'
@@ -222,8 +284,11 @@ export type SignalEntryTrigger =
   | 'over_after_3_opp_confirm'
   | 'only_up_after_down_confirm'
   | 'only_down_after_up_confirm'
+  | 'only_up_macd_candle_10s'
   | 'high_tick_3_rising_confirm'
-  | 'low_tick_3_falling_confirm';
+  | 'low_tick_3_falling_confirm'
+  | 'rise_after_fall_confirm'
+  | 'fall_after_rise_confirm';
 
 export interface NormalBotConfig {
   id: string;
@@ -250,6 +315,8 @@ export interface BotMetrics {
   losses: number;
   winRate: number;
   totalProfit: number;
+  sessionProfit?: number;
+  lastStopReason?: string;
   currentStreak: { type: 'win' | 'loss' | null; count: number };
   maxDrawdown: number;
   peakBalance: number;

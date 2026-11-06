@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import { ConnectionStatus } from '../services/tickEngine';
+import robotVol75Img from '../assets/images/robot_vol_75_1793085812944.jpg';
 
 interface LoginPageProps {
   onLoginSuccess: (accountData: {
@@ -167,7 +168,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         username: 'Deriv_Trader',
         email: 'deriv_user@deriv.com',
         isDemo: false,
-        balance: userAccount.balance || 10000,
+        balance: userAccount.balance > 0 ? userAccount.balance : 10000,
         token: cleanToken,
       });
     }, 800);
@@ -198,8 +199,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         onLoginSuccess({
           username: username.trim(),
           email: `${username.trim().toLowerCase()}@deriv.com`,
-          isDemo: username.trim().toUpperCase().startsWith('VR'),
-          balance: 0,
+          isDemo: username.trim().toUpperCase().startsWith('VR') || true,
+          balance: userAccount.balance > 0 ? userAccount.balance : 10000,
         });
       }, 500);
     }, 600);
@@ -728,7 +729,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <div className="space-y-4">
                 <div className="relative rounded-xl overflow-hidden border border-slate-800/60 shadow-lg aspect-video bg-black">
                   <img
-                    src="/src/assets/images/robot_vol_75_1793085812944.jpg"
+                    src={robotVol75Img}
                     alt="Synthetic Indices High-Frequency AI Robot"
                     className="w-full h-full object-cover object-top opacity-90 hover:scale-105 transition-transform duration-700"
                     referrerPolicy="no-referrer"

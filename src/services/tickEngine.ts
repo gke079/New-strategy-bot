@@ -1,4 +1,5 @@
 import { Market, Tick, OHLCCandle } from '../types';
+import { SYNTHETIC_MARKETS, normalizeMarketId } from './markets';
 
 export type TickListener = (tick: Tick, allTicks: Tick[]) => void;
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected';
@@ -19,16 +20,15 @@ export const DERIV_SERVERS = [
     name: 'Deriv Options API Public (Direct wss://api.derivws.com)',
     url: 'wss://api.derivws.com/trading/v1/options/ws/public',
   },
-  { id: 'prod', name: 'Deriv Primary Gateway (ws.derivws.com)', url: 'wss://ws.derivws.com/websockets/v3' },
-  { id: 'blue', name: 'Deriv Blue Gateway (blue.derivws.com)', url: 'wss://blue.derivws.com/websockets/v3' },
-  { id: 'green', name: 'Deriv Green Gateway (green.derivws.com)', url: 'wss://green.derivws.com/websockets/v3' },
-  { id: 'red', name: 'Deriv Red Gateway (red.derivws.com)', url: 'wss://red.derivws.com/websockets/v3' },
-  { id: 'binary', name: 'Deriv / Binary (ws.binaryws.com)', url: 'wss://ws.binaryws.com/websockets/v3' },
 ];
 
 export class TickStreamEngine {
   private currentMarket: Market;
   private ticks: Tick[] = [];
+  private marketTicks: Map<string, Tick[]> = new Map();
+  private marketPipSizes: Map<string, number> = new Map();
+  private subscribedMarkets: Set<string> = new Set();
+  private preloadTimer: ReturnType<typeof setTimeout> | null = null;
   private ticksWindow: number = 1000;
   private candles: OHLCCandle[] = [];
   private candlesGranularity: number = 60;
@@ -46,6 +46,7 @@ export class TickStreamEngine {
   private authError: string | null = null;
 
   private ws: WebSocket | null = null;
+  private authWs: WebSocket | null = null;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private appId: string = '1089';
@@ -55,14 +56,7 @@ export class TickStreamEngine {
   private lastRealTickEpoch: number = 0;
   private tickSpeedMs: number = 1000;
 
-  private endpoints: string[] = [
-    'wss://api.derivws.com/trading/v1/options/ws/public',
-    'wss://ws.derivws.com/websockets/v3',
-    'wss://blue.derivws.com/websockets/v3',
-    'wss://green.derivws.com/websockets/v3',
-    'wss://red.derivws.com/websockets/v3',
-    'wss://ws.binaryws.com/websockets/v3',
-  ];
+  private endpoints: string[] = [DERIV_PUBLIC_ENDPOINT];
   private currentEndpointIndex: number = 0;
 
   constructor(initialMarket: Market, initialWindow: number = 1000) {
@@ -71,6 +65,10 @@ export class TickStreamEngine {
     this.currentPipSize = initialMarket.decimals;
     this.currentPrice = 0;
     this.ticks = [];
+
+    SYNTHETIC_MARKETS.forEach((m) => {
+      this.marketPipSizes.set(m.id, m.decimals);
+    });
 
     // Check localStorage for saved Deriv credentials
     try {
@@ -91,34 +89,87 @@ export class TickStreamEngine {
   }
 
   public setMarket(market: Market) {
-    if (this.currentMarket.id === market.id) return;
-    this.currentMarket = market;
-    this.currentPipSize = market.decimals;
-    this.lastRealTickEpoch = 0;
-    this.isLiveFeed = false;
-    this.notifyLiveFeed();
+    const normalizedId = normalizeMarketId(market.id);
+    const resolvedMarket =
+      SYNTHETIC_MARKETS.find((m) => m.id === normalizedId) || market;
 
-    // Clear previous market ticks: ONLY real Deriv ticks will be populated
-    this.ticks = [];
-    this.currentPrice = 0;
-    this.notifyAll();
+    if (this.currentMarket.id === resolvedMarket.id && this.ticks.length > 0) {
+      return;
+    }
+
+    this.currentMarket = resolvedMarket;
+    const pipSize = this.marketPipSizes.get(resolvedMarket.id) ?? resolvedMarket.decimals;
+    this.currentPipSize = pipSize;
+
+    // Instant in-memory switch from live multi-market cache (0ms latency)
+    const cached = this.marketTicks.get(resolvedMarket.id) || [];
+    if (cached.length > 0) {
+      this.ticks = cached.slice(-this.ticksWindow);
+      this.currentPrice = this.ticks[this.ticks.length - 1].quote;
+      this.lastRealTickEpoch = Date.now();
+      if (!this.isLiveFeed) {
+        this.isLiveFeed = true;
+        this.notifyLiveFeed();
+      }
+      this.notifyAll();
+    } else {
+      this.ticks = [];
+      this.currentPrice = 0;
+    }
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      // Top up history if needed without tearing down live multi-market tick streams
+      const targetCount = Math.min(this.ticksWindow, 1000);
+      const alreadySubscribed = this.subscribedMarkets.has(resolvedMarket.id);
+      if (!alreadySubscribed || cached.length < Math.min(targetCount, 400)) {
+        try {
+          const payload: Record<string, unknown> = {
+            ticks_history: resolvedMarket.id,
+            end: 'latest',
+            count: targetCount,
+            style: 'ticks',
+          };
+          if (!alreadySubscribed) {
+            payload.subscribe = 1;
+            this.subscribedMarkets.add(resolvedMarket.id);
+          }
+          this.ws.send(JSON.stringify(payload));
+        } catch {}
+      }
+
+      // Switch live OHLC candle feed to newly selected market
       try {
-        this.ws.send(JSON.stringify({ forget_all: 'ticks' }));
         this.ws.send(JSON.stringify({ forget_all: 'candles' }));
+        this.ws.send(
+          JSON.stringify({
+            ticks_history: resolvedMarket.id,
+            end: 'latest',
+            count: 50,
+            style: 'candles',
+            granularity: this.candlesGranularity,
+            subscribe: 1,
+          })
+        );
       } catch {}
-      this.subscribeTicksAndHistory();
     }
   }
 
   public setTicksWindow(windowSize: number) {
     this.ticksWindow = Math.max(10, Math.min(5000, windowSize));
-    if (this.ticks.length > this.ticksWindow) {
+    const cached = this.marketTicks.get(this.currentMarket.id) || [];
+    if (cached.length > 0) {
+      this.ticks = cached.slice(-this.ticksWindow);
+      this.notifyAll();
+    } else if (this.ticks.length > this.ticksWindow) {
       this.ticks = this.ticks.slice(-this.ticksWindow);
       this.notifyAll();
     }
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+
+    if (
+      this.ws &&
+      this.ws.readyState === WebSocket.OPEN &&
+      cached.length < Math.min(this.ticksWindow, 1000)
+    ) {
       try {
         this.ws.send(
           JSON.stringify({
@@ -137,12 +188,30 @@ export class TickStreamEngine {
   }
 
   public clearBuffer() {
+    this.marketTicks.set(this.currentMarket.id, []);
     this.ticks = [];
     this.notifyAll();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            ticks_history: this.currentMarket.id,
+            end: 'latest',
+            style: 'ticks',
+            count: Math.min(this.ticksWindow, 1000),
+          })
+        );
+      } catch {}
+    }
   }
 
   public getTicks(): Tick[] {
     return [...this.ticks];
+  }
+
+  public getMarketTicks(marketId: string): Tick[] {
+    const normalized = normalizeMarketId(marketId);
+    return [...(this.marketTicks.get(normalized) || [])];
   }
 
   public getCurrentPrice(): number {
@@ -271,7 +340,9 @@ export class TickStreamEngine {
     this.appId = appId.trim() || '1089';
     this.apiToken = token.trim() || '';
     if (endpointUrl && endpointUrl.trim()) {
-      const cleanUrl = endpointUrl.trim();
+      const cleanUrl = endpointUrl.includes('websockets/v3')
+        ? DERIV_PUBLIC_ENDPOINT
+        : endpointUrl.trim();
       this.endpoints = [cleanUrl, ...this.endpoints.filter((e) => e !== cleanUrl)];
       this.currentEndpointIndex = 0;
       try {
@@ -321,18 +392,17 @@ export class TickStreamEngine {
 
         this.setStatus('connected');
         this.reconnectAttempts = 0;
+        this.subscribedMarkets.clear();
 
         // Start ping heartbeat every 20 seconds to prevent session timeout
         this.startPing();
 
-        // Authorize if token provided
+        // Authorize via dedicated Deriv v3 auth socket if token provided
         if (this.apiToken) {
-          try {
-            this.ws?.send(JSON.stringify({ authorize: this.apiToken }));
-          } catch {}
+          this.initAuthSocket();
         }
 
-        // Subscribe to real-time ticks & past ticks history
+        // Subscribe active market immediately, then warm all other synthetic markets in background
         this.subscribeTicksAndHistory();
       };
 
@@ -349,11 +419,9 @@ export class TickStreamEngine {
         if (this.isDestroyed) return;
         console.warn(`Deriv WS closed (code: ${event.code}, reason: ${event.reason || 'none'}).`);
         this.setStatus('disconnected');
-        this.isLiveFeed = false;
-        this.notifyLiveFeed();
+        this.subscribedMarkets.clear();
         this.reconnectAttempts++;
-        // Rotate to next endpoint after 2 connection attempts
-        if (this.reconnectAttempts >= 2) {
+        if (this.reconnectAttempts >= 2 && this.endpoints.length > 1) {
           this.currentEndpointIndex = (this.currentEndpointIndex + 1) % this.endpoints.length;
         }
         this.scheduleReconnect();
@@ -361,8 +429,6 @@ export class TickStreamEngine {
     } catch (err) {
       console.warn('Failed to initialize Deriv WebSocket:', err);
       this.setStatus('disconnected');
-      this.isLiveFeed = false;
-      this.notifyLiveFeed();
       this.scheduleReconnect();
     }
   }
@@ -370,32 +436,30 @@ export class TickStreamEngine {
   private subscribeTicksAndHistory() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    try {
-      // 1. Forget previous subscriptions to avoid duplicate feeds
-      this.ws.send(JSON.stringify({ forget_all: 'ticks' }));
-      this.ws.send(JSON.stringify({ forget_all: 'candles' }));
-    } catch {}
+    const activeId = this.currentMarket.id;
+    const count = Math.min(this.ticksWindow, 1000);
 
     try {
-      // 2. Request historical ticks AND subscribe to live ticks directly
+      // 1. Prioritize active market history + live tick subscription first
+      this.subscribedMarkets.add(activeId);
       this.ws.send(
         JSON.stringify({
-          ticks_history: this.currentMarket.id,
+          ticks_history: activeId,
           end: 'latest',
-          count: Math.min(this.ticksWindow, 1000),
+          count,
           style: 'ticks',
           subscribe: 1,
         })
       );
     } catch (err) {
-      console.warn('Failed to send ticks_history subscription:', err);
+      console.warn('Failed to send primary ticks_history subscription:', err);
     }
 
     try {
-      // 3. Request historical OHLC candles AND subscribe to live OHLC stream directly
+      // 2. Request historical OHLC candles & live OHLC stream for active market
       this.ws.send(
         JSON.stringify({
-          ticks_history: this.currentMarket.id,
+          ticks_history: activeId,
           end: 'latest',
           count: 50,
           style: 'candles',
@@ -406,6 +470,27 @@ export class TickStreamEngine {
     } catch (err) {
       console.warn('Failed to send OHLC candles subscription:', err);
     }
+
+    // 3. Automatically warm & subscribe all remaining synthetic markets so switching is instant (0ms)
+    if (this.preloadTimer) clearTimeout(this.preloadTimer);
+    this.preloadTimer = setTimeout(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN || this.isDestroyed) return;
+      for (const market of SYNTHETIC_MARKETS) {
+        if (market.id === activeId || this.subscribedMarkets.has(market.id)) continue;
+        try {
+          this.subscribedMarkets.add(market.id);
+          this.ws.send(
+            JSON.stringify({
+              ticks_history: market.id,
+              end: 'latest',
+              count,
+              style: 'ticks',
+              subscribe: 1,
+            })
+          );
+        } catch {}
+      }
+    }, 60);
   }
 
   private handleMessage(rawData: string) {
@@ -445,23 +530,36 @@ export class TickStreamEngine {
         this.authError = null;
         this.authErrorListeners.forEach((l) => l(null));
         this.accountListeners.forEach((l) => l(this.accountInfo));
-        console.log(`[Deriv WS] Authorized successfully: ${this.accountInfo.loginid} (Balance: ${this.accountInfo.balance} ${this.accountInfo.currency})`);
       }
 
-      // Handle Historical Ticks
+      // Handle Live Balance Subscription Updates
+      if (data.msg_type === 'balance' && data.balance && this.accountInfo) {
+        this.accountInfo = {
+          ...this.accountInfo,
+          balance: Number(data.balance.balance ?? this.accountInfo.balance),
+          currency: data.balance.currency || this.accountInfo.currency,
+        };
+        this.accountListeners.forEach((l) => l(this.accountInfo));
+      }
+
+      // Handle Historical Ticks (for active or background-warmed markets)
       if (data.msg_type === 'history' || data.history) {
+        const symbol = String(data.echo_req?.ticks_history || this.currentMarket.id);
+        const marketMeta = SYNTHETIC_MARKETS.find((m) => m.id === symbol);
         const prices: number[] = data.history?.prices || [];
         const times: number[] = data.history?.times || [];
         const pipSize: number =
-          data.pip_size !== undefined ? Number(data.pip_size) : this.currentMarket.decimals;
-        this.currentPipSize = pipSize;
+          data.pip_size !== undefined
+            ? Number(data.pip_size)
+            : marketMeta?.decimals ?? this.currentMarket.decimals;
+        this.marketPipSizes.set(symbol, pipSize);
 
         if (prices.length > 0) {
           const newTicks: Tick[] = [];
           let prev = prices[0];
 
           for (let i = 0; i < prices.length; i++) {
-            const quote = prices[i];
+            const quote = Number(prices[i]);
             const epoch = (times[i] || Math.floor(Date.now() / 1000)) * 1000;
             const quoteFormatted = quote.toFixed(pipSize);
             const lastChar = quoteFormatted.charAt(quoteFormatted.length - 1);
@@ -481,21 +579,29 @@ export class TickStreamEngine {
             });
           }
 
-          // Populate ticks with Deriv true history
-          this.ticks = newTicks.slice(-this.ticksWindow);
-          this.currentPrice = this.ticks[this.ticks.length - 1].quote;
-          this.lastRealTickEpoch = Date.now();
-          if (!this.isLiveFeed) {
-            this.isLiveFeed = true;
-            this.notifyLiveFeed();
+          const maxBuffer = Math.max(this.ticksWindow, 1000);
+          const trimmed = newTicks.slice(-maxBuffer);
+          this.marketTicks.set(symbol, trimmed);
+
+          if (symbol === this.currentMarket.id) {
+            this.currentPipSize = pipSize;
+            this.ticks = trimmed.slice(-this.ticksWindow);
+            this.currentPrice = this.ticks[this.ticks.length - 1].quote;
+            this.lastRealTickEpoch = Date.now();
+            if (!this.isLiveFeed) {
+              this.isLiveFeed = true;
+              this.notifyLiveFeed();
+            }
+            this.setStatus('connected');
+            this.notifyAll();
           }
-          this.setStatus('connected');
-          this.notifyAll();
         }
       }
 
       // Handle Historical OHLC Candles
       else if (data.msg_type === 'candles' || data.candles) {
+        const symbol = String(data.echo_req?.ticks_history || this.currentMarket.id);
+        if (symbol !== this.currentMarket.id) return;
         const rawCandles = data.candles || [];
         if (Array.isArray(rawCandles) && rawCandles.length > 0) {
           this.candles = rawCandles.map((c: any) => ({
@@ -514,6 +620,7 @@ export class TickStreamEngine {
       else if (data.msg_type === 'ohlc' || data.ohlc) {
         const ohlc = data.ohlc;
         if (ohlc) {
+          if (ohlc.symbol && ohlc.symbol !== this.currentMarket.id) return;
           const epoch = (Number(ohlc.open_time || ohlc.epoch) || Math.floor(Date.now() / 1000)) * 1000;
           const open = Number(ohlc.open);
           const high = Number(ohlc.high);
@@ -541,27 +648,31 @@ export class TickStreamEngine {
         }
       }
 
-      // Handle Real-time Live Tick
+      // Handle Real-time Live Tick (across all subscribed markets)
       else if (data.msg_type === 'tick' || data.tick) {
         const tickData = data.tick;
         if (!tickData) return;
 
+        const symbol = String(tickData.symbol || this.currentMarket.id);
+        const marketMeta = SYNTHETIC_MARKETS.find((m) => m.id === symbol);
         const quote: number = Number(tickData.quote);
         const epoch: number = (tickData.epoch || Math.floor(Date.now() / 1000)) * 1000;
         const pipSize: number =
-          tickData.pip_size !== undefined ? Number(tickData.pip_size) : this.currentPipSize;
-        this.currentPipSize = pipSize;
+          tickData.pip_size !== undefined
+            ? Number(tickData.pip_size)
+            : this.marketPipSizes.get(symbol) ?? marketMeta?.decimals ?? this.currentPipSize;
+        this.marketPipSizes.set(symbol, pipSize);
 
         const quoteFormatted = quote.toFixed(pipSize);
         const lastChar = quoteFormatted.charAt(quoteFormatted.length - 1);
         const lastDigit = parseInt(lastChar, 10);
 
-        const prevPrice = this.currentPrice || quote;
+        const existingBuffer = this.marketTicks.get(symbol) || [];
+        const prevPrice =
+          existingBuffer.length > 0 ? existingBuffer[existingBuffer.length - 1].quote : quote;
         const diff = quote - prevPrice;
         const direction =
           Math.abs(diff) < Math.pow(10, -pipSize) * 0.1 ? 'flat' : diff > 0 ? 'up' : 'down';
-
-        this.currentPrice = quote;
 
         const newTick: Tick = {
           epoch,
@@ -572,26 +683,29 @@ export class TickStreamEngine {
           change: diff,
         };
 
-        // Real live tick received from Deriv
-        this.lastRealTickEpoch = Date.now();
-        if (!this.isLiveFeed) {
-          this.isLiveFeed = true;
-          this.notifyLiveFeed();
+        const maxBuffer = Math.max(this.ticksWindow, 1000);
+        existingBuffer.push(newTick);
+        if (existingBuffer.length > maxBuffer) {
+          existingBuffer.shift();
         }
-        this.setStatus('connected');
-        this.addTick(newTick);
+        this.marketTicks.set(symbol, existingBuffer);
+
+        if (symbol === this.currentMarket.id) {
+          this.currentPipSize = pipSize;
+          this.currentPrice = quote;
+          this.lastRealTickEpoch = Date.now();
+          if (!this.isLiveFeed) {
+            this.isLiveFeed = true;
+            this.notifyLiveFeed();
+          }
+          this.setStatus('connected');
+          this.ticks = existingBuffer.slice(-this.ticksWindow);
+          this.notifyAll();
+        }
       }
     } catch (err) {
       console.warn('Error processing Deriv WebSocket message:', err);
     }
-  }
-
-  private addTick(tick: Tick) {
-    this.ticks.push(tick);
-    if (this.ticks.length > this.ticksWindow) {
-      this.ticks.shift();
-    }
-    this.notifyAll();
   }
 
   private notifyAll() {
@@ -609,7 +723,58 @@ export class TickStreamEngine {
           this.ws.send(JSON.stringify({ ping: 1 }));
         } catch {}
       }
+      if (this.authWs && this.authWs.readyState === WebSocket.OPEN) {
+        try {
+          this.authWs.send(JSON.stringify({ ping: 1 }));
+        } catch {}
+      }
     }, 20000);
+  }
+
+  private initAuthSocket() {
+    this.cleanupAuthSocket();
+    if (!this.apiToken || this.isDestroyed) return;
+    try {
+      const authUrl = `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(this.appId)}`;
+      this.authWs = new WebSocket(authUrl);
+      this.authWs.onopen = () => {
+        if (this.isDestroyed || !this.apiToken) {
+          this.cleanupAuthSocket();
+          return;
+        }
+        try {
+          this.authWs?.send(JSON.stringify({ authorize: this.apiToken }));
+        } catch {}
+      };
+      this.authWs.onmessage = (ev: MessageEvent) => {
+        if (this.isDestroyed) return;
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.msg_type === 'authorize' && msg.authorize) {
+            this.handleMessage(ev.data);
+            try {
+              this.authWs?.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+            } catch {}
+          } else if (msg.msg_type === 'balance' || msg.error) {
+            this.handleMessage(ev.data);
+          }
+        } catch {}
+      };
+      this.authWs.onerror = () => {};
+    } catch {}
+  }
+
+  private cleanupAuthSocket() {
+    if (this.authWs) {
+      try {
+        this.authWs.onopen = null;
+        this.authWs.onmessage = null;
+        this.authWs.onerror = null;
+        this.authWs.onclose = null;
+        this.authWs.close();
+      } catch {}
+      this.authWs = null;
+    }
   }
 
   private scheduleReconnect() {
@@ -626,6 +791,11 @@ export class TickStreamEngine {
   }
 
   private cleanupSocket() {
+    this.cleanupAuthSocket();
+    if (this.preloadTimer) {
+      clearTimeout(this.preloadTimer);
+      this.preloadTimer = null;
+    }
     if (this.pingInterval) {
       clearInterval(this.pingInterval);
       this.pingInterval = null;

@@ -4,18 +4,24 @@ import {
   Tick,
   BotStrategyConfig,
   BotMetrics,
+  BotSubTab,
   Trade,
   UserAccount,
   NormalBotConfig,
+  EntryBotConfig,
+  EvenOddBotConfig,
   XmlBotConfig,
   XmlBotStage,
   XmlJournalEntry,
+  isContinuousDirectionalContract,
 } from './types';
-import { DEFAULT_MARKET, SYNTHETIC_MARKETS } from './services/markets';
+import { DEFAULT_MARKET, SYNTHETIC_MARKETS, normalizeMarketId } from './services/markets';
 import { TickStreamEngine, ConnectionStatus, DerivAccountInfo } from './services/tickEngine';
 import { calculateDigitStats, calculateRatioStats } from './services/statsEngine';
 import { BotExecutor } from './services/botEngine';
 import { NormalBotExecutor, ActiveContract } from './services/normalBotEngine';
+import { EntryBotExecutor } from './services/entryBotEngine';
+import { EvenOddBotExecutor } from './services/evenOddBotEngine';
 import { XmlBotExecutor } from './services/xmlBotEngine';
 import { DEFAULT_XML_BOT_CONFIG } from './services/derivXmlBridge';
 import { soundManager } from './services/soundEffects';
@@ -29,6 +35,8 @@ import { RatioCards } from './components/RatioCards';
 import { LastDigitsRibbon } from './components/LastDigitsRibbon';
 import { BotStrategyPanel } from './components/BotStrategyPanel';
 import { NormalBotPanel } from './components/NormalBotPanel';
+import { EntryBotPanel } from './components/EntryBotPanel';
+import { EvenOddBotPanel } from './components/EvenOddBotPanel';
 import { BotBuilderView } from './components/BotBuilderView';
 import {
   SignalsView,
@@ -42,7 +50,7 @@ import { DerivApiModal } from './components/DerivApiModal';
 import { AuthModal } from './components/AuthModal';
 import { LoginPage } from './components/LoginPage';
 import { FloatingBotController } from './components/FloatingBotController';
-import { Zap, Cpu, ShieldCheck } from 'lucide-react';
+import { Zap, Cpu, Crosshair, ArrowLeftRight, ShieldCheck } from 'lucide-react';
 
 export default function App() {
   const [selectedMarket, setSelectedMarket] = useState<Market>(DEFAULT_MARKET);
@@ -98,16 +106,19 @@ export default function App() {
       const saved = localStorage.getItem('tickedge_auth_session');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.isLoggedIn) return parsed;
+        if (parsed.isLoggedIn) {
+          const safeBalance = parsed.balance && parsed.balance > 0 ? parsed.balance : 10000.0;
+          return { ...parsed, balance: safeBalance };
+        }
       }
     } catch {}
     return {
       isLoggedIn: false,
       username: '',
       email: '',
-      balance: 0.0,
+      balance: 10000.0,
       currency: 'USD',
-      isDemo: false,
+      isDemo: true,
     };
   });
 
@@ -120,6 +131,9 @@ export default function App() {
       const saved = localStorage.getItem('tickedge_digits_bot_strategy');
       if (saved) {
         const parsed = JSON.parse(saved);
+        const resolvedExecMode = isContinuousDirectionalContract(parsed.tradeType)
+          ? ('continuous' as const)
+          : parsed.executionMode || ('continuous' as const);
         if (!v3Migrated) {
           const s = parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35;
           const next = {
@@ -130,11 +144,16 @@ export default function App() {
             duration: 1,
             durationUnit: 't' as const,
             takeProfit: parsed.takeProfit === 0.1 || !parsed.takeProfit ? Number((s * 2).toFixed(2)) : parsed.takeProfit,
+            executionMode: resolvedExecMode,
           };
           localStorage.setItem('tickedge_digits_bot_strategy', JSON.stringify(next));
-          return next;
+          return { ...next, marketId: normalizeMarketId(next.marketId) };
         }
-        return parsed;
+        return {
+          ...parsed,
+          marketId: normalizeMarketId(parsed.marketId),
+          executionMode: resolvedExecMode,
+        };
       }
       // Legacy fallback
       const legacy = localStorage.getItem('tickedge_saved_strategy');
@@ -148,6 +167,7 @@ export default function App() {
           duration: 1,
           durationUnit: 't' as const,
           takeProfit: 0.7,
+          executionMode: 'continuous' as const,
         };
       }
     } catch {}
@@ -195,6 +215,9 @@ export default function App() {
       const saved = localStorage.getItem('tickedge_charts_bot_strategy');
       if (saved) {
         const parsed = JSON.parse(saved);
+        const resolvedExecMode = isContinuousDirectionalContract(parsed.tradeType)
+          ? ('continuous' as const)
+          : parsed.executionMode || ('continuous' as const);
         if (!v3Migrated) {
           const s = parsed.stake === 1.0 ? 0.35 : parsed.stake || 0.35;
           const next = {
@@ -205,11 +228,16 @@ export default function App() {
             duration: 1,
             durationUnit: 't' as const,
             takeProfit: parsed.takeProfit === 0.1 || !parsed.takeProfit ? Number((s * 2).toFixed(2)) : parsed.takeProfit,
+            executionMode: resolvedExecMode,
           };
           localStorage.setItem('tickedge_charts_bot_strategy', JSON.stringify(next));
-          return next;
+          return { ...next, marketId: normalizeMarketId(next.marketId) };
         }
-        return parsed;
+        return {
+          ...parsed,
+          marketId: normalizeMarketId(parsed.marketId),
+          executionMode: resolvedExecMode,
+        };
       }
     } catch {}
     return {
@@ -251,8 +279,8 @@ export default function App() {
   // ==========================================
   // 3. NORMAL BOT (DIRECT CONTINUOUS EXECUTION)
   // ==========================================
-  const [botsTabSubView, setBotsTabSubView] = useState<'normal' | 'strategy'>('normal');
-  const [floatingBotSelection, setFloatingBotSelection] = useState<'normal' | 'strategy'>('normal');
+  const [botsTabSubView, setBotsTabSubView] = useState<BotSubTab>('normal');
+  const [floatingBotSelection, setFloatingBotSelection] = useState<BotSubTab>('normal');
   const [normalBotConfig, setNormalBotConfig] = useState<NormalBotConfig>(() => {
     try {
       const v3Migrated = localStorage.getItem('tickedge_tp_double_stake_v3');
@@ -287,7 +315,7 @@ export default function App() {
           localStorage.setItem('tickedge_tp_double_stake_v3', '1');
           localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(next));
         }
-        return next;
+        return { ...next, marketId: normalizeMarketId(next.marketId) };
       }
       localStorage.setItem('tickedge_tp_double_stake_v3', '1');
     } catch {}
@@ -328,12 +356,122 @@ export default function App() {
   const [normalBotEntryStatus, setNormalBotEntryStatus] = useState<string>('');
 
   // ==========================================
+  // 3B. ENTRY BOT (SEARCH NUMBER + P1 PRIMARY / P2 RECOVERY)
+  // ==========================================
+  const [entryBotConfig, setEntryBotConfig] = useState<EntryBotConfig>(() => {
+    try {
+      const saved = localStorage.getItem('tickedge_entry_bot_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...parsed,
+          marketId: normalizeMarketId(parsed.marketId),
+        };
+      }
+    } catch {}
+    return {
+      id: 'entry-bot',
+      name: 'Entry Bot',
+      marketId: DEFAULT_MARKET.id,
+      contractType1: 'OVER',
+      prediction1: 2,
+      contractType2: 'OVER',
+      prediction2: 1,
+      searchNumber: 0,
+      entryTriggerMode: 'every_cycle',
+      stake: 0.35,
+      initialStake: 0.35,
+      duration: 1,
+      durationUnit: 't',
+      takeProfit: 0.7,
+      stopLoss: 20.0,
+      martingale: 1.8,
+      martingaleLevel: 5,
+      botSpeed: 'normal',
+      active: false,
+    };
+  });
+  const [entryBotRunning, setEntryBotRunning] = useState<boolean>(false);
+  const [entryBotPaused, setEntryBotPaused] = useState<boolean>(false);
+  const [entryBotInRecovery, setEntryBotInRecovery] = useState<boolean>(false);
+  const [entryBotWaiting, setEntryBotWaiting] = useState<boolean>(false);
+  const [entryBotStatusText, setEntryBotStatusText] = useState<string>('');
+  const [entryBotStake, setEntryBotStake] = useState<number>(entryBotConfig.stake);
+  const [entryBotStep, setEntryBotStep] = useState<number>(0);
+  const [entryBotActiveContract, setEntryBotActiveContract] = useState<ActiveContract | null>(null);
+  const [entryBotMetrics, setEntryBotMetrics] = useState<BotMetrics>({
+    totalTrades: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    totalProfit: 0,
+    currentStreak: { type: null, count: 0 },
+    maxDrawdown: 0,
+    peakBalance: 10000,
+  });
+
+  // ==========================================
+  // 3C. EVENODD BOT (S1 & S2 STRATEGIES)
+  // ==========================================
+  const [evenOddBotConfig, setEvenOddBotConfig] = useState<EvenOddBotConfig>(() => {
+    try {
+      const saved = localStorage.getItem('tickedge_evenodd_bot_config');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...parsed,
+          marketId: normalizeMarketId(parsed.marketId),
+        };
+      }
+    } catch {}
+    return {
+      id: 'evenodd-bot',
+      name: 'EvenOdd Bot',
+      marketId: DEFAULT_MARKET.id,
+      marketSide: 'EVEN',
+      strategy: 'S1',
+      executionMode: 'continuous',
+      stake: 0.35,
+      initialStake: 0.35,
+      duration: 1,
+      durationUnit: 't',
+      takeProfit: 0.7,
+      stopLoss: 20.0,
+      martingale: 2.1,
+      martingaleLevel: 5,
+      botSpeed: 'normal',
+      active: false,
+    };
+  });
+  const [evenOddBotRunning, setEvenOddBotRunning] = useState<boolean>(false);
+  const [evenOddBotPaused, setEvenOddBotPaused] = useState<boolean>(false);
+  const [evenOddBotWaiting, setEvenOddBotWaiting] = useState<boolean>(false);
+  const [evenOddBotStageLabel, setEvenOddBotStageLabel] = useState<string>('Idle');
+  const [evenOddBotStatusText, setEvenOddBotStatusText] = useState<string>('');
+  const [evenOddBotStake, setEvenOddBotStake] = useState<number>(evenOddBotConfig.stake);
+  const [evenOddBotStep, setEvenOddBotStep] = useState<number>(0);
+  const [evenOddBotActiveContract, setEvenOddBotActiveContract] = useState<ActiveContract | null>(null);
+  const [evenOddBotMetrics, setEvenOddBotMetrics] = useState<BotMetrics>({
+    totalTrades: 0,
+    wins: 0,
+    losses: 0,
+    winRate: 0,
+    totalProfit: 0,
+    currentStreak: { type: null, count: 0 },
+    maxDrawdown: 0,
+    peakBalance: 10000,
+  });
+
+  // ==========================================
   // 4. DERIV XML BOT BUILDER (BLOCKLY & STRUCTURED)
   // ==========================================
   const [xmlBotConfig, setXmlBotConfig] = useState<XmlBotConfig>(() => {
     try {
       const saved = localStorage.getItem('tickedge_xml_bot_config');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return { ...parsed, marketId: normalizeMarketId(parsed.marketId) };
+      }
     } catch {}
     return DEFAULT_XML_BOT_CONFIG;
   });
@@ -366,7 +504,18 @@ export default function App() {
   const digitsBotExecutorRef = useRef<BotExecutor | null>(null);
   const chartsBotExecutorRef = useRef<BotExecutor | null>(null);
   const normalBotExecutorRef = useRef<NormalBotExecutor | null>(null);
+  const entryBotExecutorRef = useRef<EntryBotExecutor | null>(null);
+  const evenOddBotExecutorRef = useRef<EvenOddBotExecutor | null>(null);
   const xmlBotExecutorRef = useRef<XmlBotExecutor | null>(null);
+
+  const syncAllExecutorsBalance = (balance: number) => {
+    digitsBotExecutorRef.current?.setBalance(balance);
+    chartsBotExecutorRef.current?.setBalance(balance);
+    normalBotExecutorRef.current?.setBalance(balance);
+    entryBotExecutorRef.current?.setBalance(balance);
+    evenOddBotExecutorRef.current?.setBalance(balance);
+    xmlBotExecutorRef.current?.setBalance(balance);
+  };
 
   // Initialize Tick Engine & Independent Bot Executors once
   useEffect(() => {
@@ -385,6 +534,14 @@ export default function App() {
     const normalBot = new NormalBotExecutor(normalBotConfig, userAccount.balance);
     normalBotExecutorRef.current = normalBot;
 
+    // Independent Entry Bot Executor
+    const entryBot = new EntryBotExecutor(entryBotConfig, userAccount.balance);
+    entryBotExecutorRef.current = entryBot;
+
+    // Independent EvenOdd Bot Executor
+    const evenOddBot = new EvenOddBotExecutor(evenOddBotConfig, userAccount.balance);
+    evenOddBotExecutorRef.current = evenOddBot;
+
     // Independent Deriv XML Bot Executor
     const xmlBot = new XmlBotExecutor(xmlBotConfig, userAccount.balance);
     xmlBotExecutorRef.current = xmlBot;
@@ -394,13 +551,12 @@ export default function App() {
       setTrades((prev) => [trade, ...prev.slice(0, 199)]);
       setDigitsBotMetrics(metrics);
       setUserAccount((prev) => ({ ...prev, balance }));
-      chartsBotExecutorRef.current?.setBalance(balance);
-      normalBotExecutorRef.current?.setBalance(balance);
-      xmlBotExecutorRef.current?.setBalance(balance);
+      syncAllExecutorsBalance(balance);
     });
 
     const unsubDigitsStatus = digitsBot.onStatusChange((running) => {
       setDigitsBotRunning(running);
+      setDigitsBotMetrics(digitsBot.getMetrics());
     });
 
     // Listen to Charts bot trades
@@ -408,13 +564,12 @@ export default function App() {
       setTrades((prev) => [trade, ...prev.slice(0, 199)]);
       setChartsBotMetrics(metrics);
       setUserAccount((prev) => ({ ...prev, balance }));
-      digitsBotExecutorRef.current?.setBalance(balance);
-      normalBotExecutorRef.current?.setBalance(balance);
-      xmlBotExecutorRef.current?.setBalance(balance);
+      syncAllExecutorsBalance(balance);
     });
 
     const unsubChartsStatus = chartsBot.onStatusChange((running) => {
       setChartsBotRunning(running);
+      setChartsBotMetrics(chartsBot.getMetrics());
       if (!running) setChartsBotPaused(false);
     });
 
@@ -427,15 +582,16 @@ export default function App() {
       setTrades((prev) => [trade, ...prev.slice(0, 199)]);
       setNormalBotMetrics(metrics);
       setUserAccount((prev) => ({ ...prev, balance }));
-      digitsBotExecutorRef.current?.setBalance(balance);
-      chartsBotExecutorRef.current?.setBalance(balance);
-      xmlBotExecutorRef.current?.setBalance(balance);
+      syncAllExecutorsBalance(balance);
       setNormalBotStake(normalBot.getCurrentStake());
       setNormalBotStep(normalBot.getCurrentStep());
     });
 
     const unsubNormalStatus = normalBot.onStatusChange((running) => {
       setNormalBotRunning(running);
+      setNormalBotMetrics(normalBot.getMetrics());
+      setNormalBotStake(normalBot.getCurrentStake());
+      setNormalBotStep(normalBot.getCurrentStep());
       if (!running) {
         setNormalBotPaused(false);
         setActiveSignal(null);
@@ -455,14 +611,84 @@ export default function App() {
       setNormalBotEntryStatus(statusText);
     });
 
+    // Listen to Entry Bot trades, status, pause, progress & state
+    const unsubEntryTrade = entryBot.onTrade((trade, metrics, balance) => {
+      setTrades((prev) => [trade, ...prev.slice(0, 199)]);
+      setEntryBotMetrics(metrics);
+      setUserAccount((prev) => ({ ...prev, balance }));
+      syncAllExecutorsBalance(balance);
+      setEntryBotStake(entryBot.getCurrentStake());
+      setEntryBotStep(entryBot.getCurrentStep());
+      setEntryBotInRecovery(entryBot.getInRecovery());
+    });
+
+    const unsubEntryStatus = entryBot.onStatusChange((running) => {
+      setEntryBotRunning(running);
+      setEntryBotMetrics(entryBot.getMetrics());
+      setEntryBotStake(entryBot.getCurrentStake());
+      setEntryBotStep(entryBot.getCurrentStep());
+      if (!running) {
+        setEntryBotPaused(false);
+        setEntryBotInRecovery(false);
+        setEntryBotWaiting(false);
+      }
+    });
+
+    const unsubEntryPause = entryBot.onPauseChange((paused) => {
+      setEntryBotPaused(paused);
+    });
+
+    const unsubEntryProgress = entryBot.onContractProgress((activeContract) => {
+      setEntryBotActiveContract(activeContract);
+    });
+
+    const unsubEntryState = entryBot.onStateChange((state) => {
+      setEntryBotWaiting(state.waitingForSearch);
+      setEntryBotInRecovery(state.inRecovery);
+      setEntryBotStatusText(state.statusText);
+    });
+
+    // Listen to EvenOdd Bot trades, status, pause, progress & state
+    const unsubEvenOddTrade = evenOddBot.onTrade((trade, metrics, balance) => {
+      setTrades((prev) => [trade, ...prev.slice(0, 199)]);
+      setEvenOddBotMetrics(metrics);
+      setUserAccount((prev) => ({ ...prev, balance }));
+      syncAllExecutorsBalance(balance);
+      setEvenOddBotStake(evenOddBot.getCurrentStake());
+      setEvenOddBotStep(evenOddBot.getCurrentStep());
+    });
+
+    const unsubEvenOddStatus = evenOddBot.onStatusChange((running) => {
+      setEvenOddBotRunning(running);
+      setEvenOddBotMetrics(evenOddBot.getMetrics());
+      setEvenOddBotStake(evenOddBot.getCurrentStake());
+      setEvenOddBotStep(evenOddBot.getCurrentStep());
+      if (!running) {
+        setEvenOddBotPaused(false);
+        setEvenOddBotWaiting(false);
+      }
+    });
+
+    const unsubEvenOddPause = evenOddBot.onPauseChange((paused) => {
+      setEvenOddBotPaused(paused);
+    });
+
+    const unsubEvenOddProgress = evenOddBot.onContractProgress((activeContract) => {
+      setEvenOddBotActiveContract(activeContract);
+    });
+
+    const unsubEvenOddState = evenOddBot.onStateChange((state) => {
+      setEvenOddBotWaiting(state.waitingForCondition);
+      setEvenOddBotStageLabel(state.stageLabel);
+      setEvenOddBotStatusText(state.statusText);
+    });
+
     // Listen to XML Bot trades, status & journal
     const unsubXmlTrade = xmlBot.onTrade((trade, metrics, balance) => {
       setTrades((prev) => [trade, ...prev.slice(0, 199)]);
       setXmlBotMetrics(metrics);
       setUserAccount((prev) => ({ ...prev, balance }));
-      digitsBotExecutorRef.current?.setBalance(balance);
-      chartsBotExecutorRef.current?.setBalance(balance);
-      normalBotExecutorRef.current?.setBalance(balance);
+      syncAllExecutorsBalance(balance);
       setXmlBotStake(xmlBot.getCurrentStake());
       setXmlBotStep(xmlBot.getCurrentStep());
     });
@@ -471,6 +697,7 @@ export default function App() {
       setXmlBotRunning(running);
       setXmlBotPaused(paused);
       setXmlBotStage(stage);
+      setXmlBotMetrics(xmlBot.getMetrics());
       setXmlBotStake(xmlBot.getCurrentStake());
       setXmlBotStep(xmlBot.getCurrentStep());
     });
@@ -496,10 +723,7 @@ export default function App() {
           currency: acc.currency,
           isDemo: acc.isVirtual,
         }));
-        digitsBotExecutorRef.current?.setBalance(acc.balance);
-        chartsBotExecutorRef.current?.setBalance(acc.balance);
-        normalBotExecutorRef.current?.setBalance(acc.balance);
-        xmlBotExecutorRef.current?.setBalance(acc.balance);
+        syncAllExecutorsBalance(acc.balance);
       }
     });
 
@@ -543,6 +767,21 @@ export default function App() {
         normalBotExecutorRef.current.evaluateTick(newTick, allTicks, activeMarketId);
         setNormalBotStake(normalBotExecutorRef.current.getCurrentStake());
         setNormalBotStep(normalBotExecutorRef.current.getCurrentStep());
+      }
+
+      // Independent evaluation: Entry Bot
+      if (entryBotExecutorRef.current && entryBotExecutorRef.current.getStatus()) {
+        entryBotExecutorRef.current.evaluateTick(newTick, allTicks, activeMarketId);
+        setEntryBotStake(entryBotExecutorRef.current.getCurrentStake());
+        setEntryBotStep(entryBotExecutorRef.current.getCurrentStep());
+        setEntryBotInRecovery(entryBotExecutorRef.current.getInRecovery());
+      }
+
+      // Independent evaluation: EvenOdd Bot
+      if (evenOddBotExecutorRef.current && evenOddBotExecutorRef.current.getStatus()) {
+        evenOddBotExecutorRef.current.evaluateTick(newTick, allTicks, dStats, activeMarketId);
+        setEvenOddBotStake(evenOddBotExecutorRef.current.getCurrentStake());
+        setEvenOddBotStep(evenOddBotExecutorRef.current.getCurrentStep());
       }
 
       // Independent evaluation: Deriv XML Bot Builder
@@ -594,6 +833,16 @@ export default function App() {
       unsubNormalPause();
       unsubNormalProgress();
       unsubNormalEntryWait();
+      unsubEntryTrade();
+      unsubEntryStatus();
+      unsubEntryPause();
+      unsubEntryProgress();
+      unsubEntryState();
+      unsubEvenOddTrade();
+      unsubEvenOddStatus();
+      unsubEvenOddPause();
+      unsubEvenOddProgress();
+      unsubEvenOddState();
       unsubXmlTrade();
       unsubXmlStatus();
       unsubXmlJournal();
@@ -614,7 +863,7 @@ export default function App() {
     }
   };
 
-  // Sync market changes
+  // Sync market changes automatically across live stream and bots
   const handleSelectMarket = (market: Market) => {
     selectedMarketRef.current = market;
     setSelectedMarket(market);
@@ -634,6 +883,16 @@ export default function App() {
     setNormalBotConfig((prev) => {
       const next = { ...prev, marketId: market.id };
       normalBotExecutorRef.current?.updateConfig(next);
+      return next;
+    });
+    setEntryBotConfig((prev) => {
+      const next = { ...prev, marketId: market.id };
+      entryBotExecutorRef.current?.updateConfig(next);
+      return next;
+    });
+    setEvenOddBotConfig((prev) => {
+      const next = { ...prev, marketId: market.id };
+      evenOddBotExecutorRef.current?.updateConfig(next);
       return next;
     });
     setXmlBotConfig((prev) => {
@@ -677,7 +936,13 @@ export default function App() {
   // DIGITS BOT HANDLERS
   // ==========================================
   const handleUpdateDigitsBotConfig = (newConfig: Partial<BotStrategyConfig>) => {
-    const updated = { ...digitsBotConfig, ...newConfig };
+    const merged = { ...digitsBotConfig, ...newConfig };
+    const updated: BotStrategyConfig = {
+      ...merged,
+      executionMode: isContinuousDirectionalContract(merged.tradeType)
+        ? 'continuous'
+        : merged.executionMode || 'continuous',
+    };
     setDigitsBotConfig(updated);
     try {
       localStorage.setItem('tickedge_digits_bot_strategy', JSON.stringify(updated));
@@ -694,7 +959,14 @@ export default function App() {
   };
 
   const handleStartDigitsBot = () => {
+    if (digitsBotConfig.marketId && digitsBotConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === digitsBotConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
+    }
     if (digitsBotExecutorRef.current) {
+      digitsBotExecutorRef.current.updateConfig(digitsBotConfig);
       digitsBotExecutorRef.current.start();
     }
   };
@@ -723,7 +995,13 @@ export default function App() {
   // CHARTS BOT HANDLERS
   // ==========================================
   const handleUpdateChartsBotConfig = (newConfig: Partial<BotStrategyConfig>) => {
-    const updated = { ...chartsBotConfig, ...newConfig };
+    const merged = { ...chartsBotConfig, ...newConfig };
+    const updated: BotStrategyConfig = {
+      ...merged,
+      executionMode: isContinuousDirectionalContract(merged.tradeType)
+        ? 'continuous'
+        : merged.executionMode || 'continuous',
+    };
     setChartsBotConfig(updated);
     try {
       localStorage.setItem('tickedge_charts_bot_strategy', JSON.stringify(updated));
@@ -740,7 +1018,15 @@ export default function App() {
   };
 
   const handleStartChartsBot = () => {
+    if (chartsBotConfig.marketId && chartsBotConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === chartsBotConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
+    }
+    setFloatingBotSelection('strategy');
     if (chartsBotExecutorRef.current) {
+      chartsBotExecutorRef.current.updateConfig(chartsBotConfig);
       chartsBotExecutorRef.current.start();
     }
   };
@@ -783,11 +1069,13 @@ export default function App() {
   const handleUpdateNormalBotConfig = (newConfig: Partial<NormalBotConfig>) => {
     const updated = { ...normalBotConfig, ...newConfig };
     setNormalBotConfig(updated);
-    localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(updated));
+    try {
+      localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(updated));
+    } catch {}
     if (normalBotExecutorRef.current) {
       normalBotExecutorRef.current.updateConfig(updated);
     }
-    if (newConfig.marketId && newConfig.marketId !== selectedMarket.id) {
+    if (newConfig.marketId && newConfig.marketId !== selectedMarketRef.current.id) {
       const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === newConfig.marketId);
       if (targetMarket) {
         handleSelectMarket(targetMarket);
@@ -797,15 +1085,15 @@ export default function App() {
 
   const handleStartNormalBot = () => {
     if (normalBotExecutorRef.current) {
-      setActiveSignal(null);
-      if (normalBotConfig.signalEntryTrigger && normalBotConfig.signalEntryTrigger !== 'immediate') {
-        const cleaned = { ...normalBotConfig, signalEntryTrigger: 'immediate' as const };
-        setNormalBotConfig(cleaned);
-        try {
-          localStorage.setItem('tickedge_normal_bot_config', JSON.stringify(cleaned));
-        } catch {}
-        normalBotExecutorRef.current.updateConfig(cleaned);
+      if (normalBotConfig.marketId && normalBotConfig.marketId !== selectedMarketRef.current.id) {
+        const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === normalBotConfig.marketId);
+        if (targetMarket) {
+          handleSelectMarket(targetMarket);
+        }
       }
+      setActiveSignal(null);
+      setFloatingBotSelection('normal');
+      normalBotExecutorRef.current.updateConfig(normalBotConfig);
       normalBotExecutorRef.current.start();
     }
   };
@@ -862,6 +1150,129 @@ export default function App() {
   const handleResetStrategyBot = () => {
     handleResetChartsBotStats();
     handleResetChartsBotAfterTrade();
+  };
+
+  // ==========================================
+  // ENTRY BOT HANDLERS
+  // ==========================================
+  const handleUpdateEntryBotConfig = (newConfig: Partial<EntryBotConfig>) => {
+    const updated = { ...entryBotConfig, ...newConfig };
+    setEntryBotConfig(updated);
+    try {
+      localStorage.setItem('tickedge_entry_bot_config', JSON.stringify(updated));
+    } catch {}
+    entryBotExecutorRef.current?.updateConfig(updated);
+    if (!entryBotRunning && newConfig.initialStake !== undefined) {
+      setEntryBotStake(newConfig.initialStake);
+    }
+    if (newConfig.marketId && newConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === newConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
+    }
+  };
+
+  const handleStartEntryBot = () => {
+    if (entryBotConfig.marketId && entryBotConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === entryBotConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
+    }
+    setFloatingBotSelection('entry');
+    entryBotExecutorRef.current?.updateConfig(entryBotConfig);
+    entryBotExecutorRef.current?.start();
+  };
+
+  const handleStopEntryBot = () => {
+    entryBotExecutorRef.current?.stop('Manual Stop');
+  };
+
+  const handlePauseEntryBot = () => {
+    entryBotExecutorRef.current?.pause();
+  };
+
+  const handleResumeEntryBot = () => {
+    entryBotExecutorRef.current?.resume();
+  };
+
+  const handleResetEntryBotStats = () => {
+    if (entryBotExecutorRef.current) {
+      entryBotExecutorRef.current.resetStats();
+      entryBotExecutorRef.current.resetTradeStake();
+      setEntryBotMetrics(entryBotExecutorRef.current.getMetrics());
+      setEntryBotStake(entryBotExecutorRef.current.getCurrentStake());
+      setEntryBotStep(0);
+      setEntryBotInRecovery(false);
+      setTrades((prev) => prev.filter((t) => t.botSource !== 'entry'));
+    }
+  };
+
+  const handleToggleEntryBotSpeed = () => {
+    const nextSpeed = entryBotConfig.botSpeed === 'fast' ? 'normal' : 'fast';
+    handleUpdateEntryBotConfig({ botSpeed: nextSpeed });
+  };
+
+  // ==========================================
+  // EVENODD BOT HANDLERS
+  // ==========================================
+  const handleUpdateEvenOddBotConfig = (newConfig: Partial<EvenOddBotConfig>) => {
+    const updated = { ...evenOddBotConfig, ...newConfig };
+    setEvenOddBotConfig(updated);
+    try {
+      localStorage.setItem('tickedge_evenodd_bot_config', JSON.stringify(updated));
+    } catch {}
+    evenOddBotExecutorRef.current?.updateConfig(updated);
+    if (!evenOddBotRunning && newConfig.initialStake !== undefined) {
+      setEvenOddBotStake(newConfig.initialStake);
+    }
+    if (newConfig.marketId && newConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === newConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
+    }
+  };
+
+  const handleStartEvenOddBot = () => {
+    if (evenOddBotConfig.marketId && evenOddBotConfig.marketId !== selectedMarketRef.current.id) {
+      const targetMarket = SYNTHETIC_MARKETS.find((m) => m.id === evenOddBotConfig.marketId);
+      if (targetMarket) {
+        handleSelectMarket(targetMarket);
+      }
+    }
+    setFloatingBotSelection('evenodd');
+    evenOddBotExecutorRef.current?.updateConfig(evenOddBotConfig);
+    evenOddBotExecutorRef.current?.start();
+  };
+
+  const handleStopEvenOddBot = () => {
+    evenOddBotExecutorRef.current?.stop('Manual Stop');
+  };
+
+  const handlePauseEvenOddBot = () => {
+    evenOddBotExecutorRef.current?.pause();
+  };
+
+  const handleResumeEvenOddBot = () => {
+    evenOddBotExecutorRef.current?.resume();
+  };
+
+  const handleResetEvenOddBotStats = () => {
+    if (evenOddBotExecutorRef.current) {
+      evenOddBotExecutorRef.current.resetStats();
+      evenOddBotExecutorRef.current.resetTradeStake();
+      setEvenOddBotMetrics(evenOddBotExecutorRef.current.getMetrics());
+      setEvenOddBotStake(evenOddBotExecutorRef.current.getCurrentStake());
+      setEvenOddBotStep(0);
+      setTrades((prev) => prev.filter((t) => t.botSource !== 'evenodd'));
+    }
+  };
+
+  const handleToggleEvenOddBotSpeed = () => {
+    const nextSpeed = evenOddBotConfig.botSpeed === 'fast' ? 'normal' : 'fast';
+    handleUpdateEvenOddBotConfig({ botSpeed: nextSpeed });
   };
 
   // ==========================================
@@ -933,7 +1344,7 @@ export default function App() {
     setSelectedMarket(req.market);
     engineRef.current?.setMarket(req.market);
 
-    // 2. Sync Normal Bot configuration with the Signal parameters
+    const isOnlyUpStrategy = req.category === 'only_up';
     const isOnlyUpDown =
       req.contractType === 'ONLY_UP' || req.contractType === 'ONLY_DOWN';
     const isHighLowTick =
@@ -944,7 +1355,9 @@ export default function App() {
         : isHighLowTick
         ? Math.min(5, Math.max(1, Math.round(req.prediction || 5)))
         : req.prediction;
-    const resolvedTicks = isOnlyUpDown
+    const resolvedTicks = isOnlyUpStrategy
+      ? Math.min(5, Math.max(2, Math.round(req.ticks || 2)))
+      : isOnlyUpDown
       ? Math.min(5, Math.max(2, Math.round(req.ticks || 5)))
       : isHighLowTick
       ? 5
@@ -998,18 +1411,7 @@ export default function App() {
   // Reset user balance (updates all executors)
   const handleResetUserBalance = (amount: number) => {
     setUserAccount((prev) => ({ ...prev, balance: amount }));
-    if (digitsBotExecutorRef.current) {
-      digitsBotExecutorRef.current.setBalance(amount);
-    }
-    if (chartsBotExecutorRef.current) {
-      chartsBotExecutorRef.current.setBalance(amount);
-    }
-    if (normalBotExecutorRef.current) {
-      normalBotExecutorRef.current.setBalance(amount);
-    }
-    if (xmlBotExecutorRef.current) {
-      xmlBotExecutorRef.current.setBalance(amount);
-    }
+    syncAllExecutorsBalance(amount);
   };
 
   const handleAuthorizeDerivToken = (token: string) => {
@@ -1052,19 +1454,20 @@ export default function App() {
     balance: number;
     token?: string;
   }) => {
+    const safeBalance = accountData.balance > 0 ? accountData.balance : 10000.0;
     const updatedAccount: UserAccount = {
       isLoggedIn: true,
       username: accountData.username,
       email: accountData.email,
       isDemo: accountData.isDemo,
-      balance: accountData.balance,
+      balance: safeBalance,
       currency: 'USD',
     };
     setUserAccount(updatedAccount);
     try {
       localStorage.setItem('tickedge_auth_session', JSON.stringify(updatedAccount));
     } catch {}
-    handleResetUserBalance(accountData.balance);
+    handleResetUserBalance(safeBalance);
     if (accountData.token) {
       handleAuthorizeDerivToken(accountData.token);
     }
@@ -1247,31 +1650,16 @@ export default function App() {
         {/* BOTS TAB */}
         {activeTab === 'bots' && (
           <>
-            {/* Circle Digit Analysis in a straight horizontal line */}
-            <DigitCirclesGrid
-              stats={digitStats}
-              activeDigit={currentTick?.lastDigit}
-              layout="horizontal"
-              theme={theme}
-              onSelectDigit={(d) => {
-                if (
-                  !normalBotRunning &&
-                  ['OVER', 'UNDER', 'DIFFERS', 'MATCHES'].includes(normalBotConfig.contractType)
-                ) {
-                  handleUpdateNormalBotConfig({ prediction: d });
-                }
-                handleUpdateChartsBotConfig({ predictionDigit: d, xDigit: d });
-              }}
-            />
-
-            {/* Sub-navigation to switch between the Normal Bot and Strategy Bot (White box) */}
-            <div
-              className="flex items-center justify-between p-1.5 rounded-2xl border bg-white border-neutral-300 shadow-sm transition-colors"
-            >
-              <div className="flex items-center gap-1.5">
+            {/* Sub-navigation to switch between Normal Bot, Strategy Bot, Entry Bot, and EvenOdd Bot */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-1.5 rounded-2xl border bg-white border-neutral-300 shadow-sm transition-colors">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
-                  onClick={() => setBotsTabSubView('normal')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  type="button"
+                  onClick={() => {
+                    setBotsTabSubView('normal');
+                    setFloatingBotSelection('normal');
+                  }}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     botsTabSubView === 'normal'
                       ? 'bg-[#00FFFF] text-slate-950 font-black shadow-md shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
                       : 'text-neutral-600 hover:text-black hover:bg-neutral-100'
@@ -1289,8 +1677,12 @@ export default function App() {
                 </button>
 
                 <button
-                  onClick={() => setBotsTabSubView('strategy')}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  type="button"
+                  onClick={() => {
+                    setBotsTabSubView('strategy');
+                    setFloatingBotSelection('strategy');
+                  }}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     botsTabSubView === 'strategy'
                       ? 'bg-[#00FFFF] text-slate-950 font-black shadow-md shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
                       : 'text-neutral-600 hover:text-black hover:bg-neutral-100'
@@ -1302,25 +1694,75 @@ export default function App() {
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                   )}
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBotsTabSubView('entry');
+                    setFloatingBotSelection('entry');
+                  }}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    botsTabSubView === 'entry'
+                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-md shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
+                      : 'text-neutral-600 hover:text-black hover:bg-neutral-100'
+                  }`}
+                >
+                  <Crosshair className="w-3.5 h-3.5" />
+                  <span>Entry Bot</span>
+                  {entryBotRunning && (
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        entryBotPaused ? 'bg-amber-400' : 'bg-emerald-500 animate-ping'
+                      }`}
+                    />
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBotsTabSubView('evenodd');
+                    setFloatingBotSelection('evenodd');
+                  }}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    botsTabSubView === 'evenodd'
+                      ? 'bg-[#00FFFF] text-slate-950 font-black shadow-md shadow-[#00FFFF]/35 ring-1 ring-[#00FFFF] border border-[#00FFFF]'
+                      : 'text-neutral-600 hover:text-black hover:bg-neutral-100'
+                  }`}
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span>EvenOdd Bot</span>
+                  {evenOddBotRunning && (
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        evenOddBotPaused ? 'bg-amber-400' : 'bg-emerald-500 animate-ping'
+                      }`}
+                    />
+                  )}
+                </button>
               </div>
 
-              <div className="hidden sm:flex items-center gap-2 pr-3 font-mono text-xs">
-                <span className="text-neutral-500">
-                  Active Mode:
-                </span>
-                <span
-                  className="font-bold text-neutral-950"
-                >
-                  {botsTabSubView === 'normal' ? 'Normal Direct Execution' : 'Advanced Strategy'}
+              <div className="hidden lg:flex items-center gap-2 pr-3 font-mono text-xs whitespace-nowrap">
+                <span className="text-neutral-500">Active Mode:</span>
+                <span className="font-bold text-neutral-950">
+                  {botsTabSubView === 'normal'
+                    ? 'Normal Direct Execution'
+                    : botsTabSubView === 'strategy'
+                    ? 'Advanced Strategy'
+                    : botsTabSubView === 'entry'
+                    ? 'Search Touch + P1/P2 Recovery'
+                    : `EvenOdd (${evenOddBotConfig.strategy})`}
                 </span>
               </div>
             </div>
 
-            {/* 1. NORMAL BOT (With: market, contract, prediction, stake, duration, take profit, stop loss, martingale, martingale level) */}
+            {/* 1. NORMAL BOT */}
             {botsTabSubView === 'normal' && (
               <NormalBotPanel
                 config={normalBotConfig}
                 onUpdateConfig={handleUpdateNormalBotConfig}
+                digitStats={digitStats}
+                currentDigit={currentTick?.lastDigit}
                 isRunning={normalBotRunning}
                 isPaused={normalBotPaused}
                 onStart={handleStartNormalBot}
@@ -1345,6 +1787,8 @@ export default function App() {
               <BotStrategyPanel
                 config={chartsBotConfig}
                 onUpdateConfig={handleUpdateChartsBotConfig}
+                digitStats={digitStats}
+                currentDigit={currentTick?.lastDigit}
                 isRunning={chartsBotRunning}
                 isPaused={chartsBotPaused}
                 onStart={handleStartChartsBot}
@@ -1359,6 +1803,59 @@ export default function App() {
                 selectedMarketId={selectedMarket.id}
                 storageKey="tickedge_charts_bot_strategy"
                 tag="Strategy Bot"
+                theme={theme}
+              />
+            )}
+
+            {/* 3. ENTRY BOT */}
+            {botsTabSubView === 'entry' && (
+              <EntryBotPanel
+                config={entryBotConfig}
+                onUpdateConfig={handleUpdateEntryBotConfig}
+                digitStats={digitStats}
+                isRunning={entryBotRunning}
+                isPaused={entryBotPaused}
+                inRecovery={entryBotInRecovery}
+                waitingForSearch={entryBotWaiting}
+                statusText={entryBotStatusText}
+                currentDigit={currentTick?.lastDigit}
+                onStart={handleStartEntryBot}
+                onStop={handleStopEntryBot}
+                onPause={handlePauseEntryBot}
+                onResume={handleResumeEntryBot}
+                metrics={entryBotMetrics}
+                trades={trades.filter((t) => t.botSource === 'entry')}
+                onResetStats={handleResetEntryBotStats}
+                currentStake={entryBotStake}
+                currentStep={entryBotStep}
+                activeContract={entryBotActiveContract}
+                theme={theme}
+              />
+            )}
+
+            {/* 4. EVENODD BOT */}
+            {botsTabSubView === 'evenodd' && (
+              <EvenOddBotPanel
+                config={evenOddBotConfig}
+                onUpdateConfig={handleUpdateEvenOddBotConfig}
+                digitStats={digitStats}
+                ratioStats={ratioStats}
+                currentDigit={currentTick?.lastDigit}
+                isRunning={evenOddBotRunning}
+                isPaused={evenOddBotPaused}
+                waitingForCondition={evenOddBotWaiting}
+                stageLabel={evenOddBotStageLabel}
+                statusText={evenOddBotStatusText}
+                onStart={handleStartEvenOddBot}
+                onStop={handleStopEvenOddBot}
+                onPause={handlePauseEvenOddBot}
+                onResume={handleResumeEvenOddBot}
+                metrics={evenOddBotMetrics}
+                trades={trades.filter((t) => t.botSource === 'evenodd')}
+                onResetStats={handleResetEvenOddBotStats}
+                currentStake={evenOddBotStake}
+                currentStep={evenOddBotStep}
+                activeContract={evenOddBotActiveContract}
                 theme={theme}
               />
             )}
@@ -1430,6 +1927,34 @@ export default function App() {
         onResumeStrategyBot={handleResumeChartsBot}
         onResetStrategyBot={handleResetStrategyBot}
         onToggleStrategyBotSpeed={handleToggleStrategyBotSpeed}
+        entryBotRunning={entryBotRunning}
+        entryBotPaused={entryBotPaused}
+        entryBotWaiting={entryBotWaiting}
+        entryBotStatus={entryBotStatusText}
+        entryBotStake={entryBotStake}
+        entryBotStep={entryBotStep}
+        entryBotMetrics={entryBotMetrics}
+        entryBotConfig={entryBotConfig}
+        onStartEntryBot={handleStartEntryBot}
+        onStopEntryBot={handleStopEntryBot}
+        onPauseEntryBot={handlePauseEntryBot}
+        onResumeEntryBot={handleResumeEntryBot}
+        onResetEntryBot={handleResetEntryBotStats}
+        onToggleEntryBotSpeed={handleToggleEntryBotSpeed}
+        evenOddBotRunning={evenOddBotRunning}
+        evenOddBotPaused={evenOddBotPaused}
+        evenOddBotWaiting={evenOddBotWaiting}
+        evenOddBotStatus={evenOddBotStatusText}
+        evenOddBotStake={evenOddBotStake}
+        evenOddBotStep={evenOddBotStep}
+        evenOddBotMetrics={evenOddBotMetrics}
+        evenOddBotConfig={evenOddBotConfig}
+        onStartEvenOddBot={handleStartEvenOddBot}
+        onStopEvenOddBot={handleStopEvenOddBot}
+        onPauseEvenOddBot={handlePauseEvenOddBot}
+        onResumeEvenOddBot={handleResumeEvenOddBot}
+        onResetEvenOddBot={handleResetEvenOddBotStats}
+        onToggleEvenOddBotSpeed={handleToggleEvenOddBotSpeed}
         onNavigateToBotSettings={(bot) => {
           setBotsTabSubView(bot);
           setActiveTab('bots');
@@ -1444,7 +1969,9 @@ export default function App() {
         onTabChange={setActiveTab}
         digitsBotRunning={digitsBotRunning}
         signalBotRunning={normalBotRunning && activeSignal !== null}
-        chartsBotRunning={chartsBotRunning || normalBotRunning}
+        chartsBotRunning={
+          chartsBotRunning || normalBotRunning || entryBotRunning || evenOddBotRunning
+        }
         xmlBotRunning={xmlBotRunning}
         theme={theme}
       />
@@ -1471,7 +1998,15 @@ export default function App() {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         userAccount={userAccount}
-        onUpdateAccount={(acc) => setUserAccount((prev) => ({ ...prev, ...acc }))}
+        onUpdateAccount={(acc) => {
+          setUserAccount((prev) => {
+            const next = { ...prev, ...acc };
+            if (acc.balance !== undefined) {
+              syncAllExecutorsBalance(acc.balance);
+            }
+            return next;
+          });
+        }}
         onResetBalance={handleResetUserBalance}
         onAuthorizeDerivToken={handleAuthorizeDerivToken}
         onOpenLoginPage={() => {

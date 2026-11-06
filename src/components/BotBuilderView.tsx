@@ -483,21 +483,36 @@ export const BotBuilderView: React.FC<BotBuilderViewProps> = ({
 
           <div>
             <span className="text-[11px] text-slate-400 block">Session P/L · Win Rate</span>
-            <div className="mt-1 font-mono tabular-nums text-xs font-bold flex items-center gap-2">
+            <div className="mt-1 font-mono tabular-nums text-xs font-bold flex items-center gap-2 flex-wrap">
               <span
                 className={
-                  metrics.totalProfit > 0
+                  (metrics.sessionProfit ?? metrics.totalProfit) > 0
                     ? 'text-emerald-500'
-                    : metrics.totalProfit < 0
+                    : (metrics.sessionProfit ?? metrics.totalProfit) < 0
                     ? 'text-rose-500'
                     : 'text-slate-400'
                 }
               >
-                {metrics.totalProfit >= 0 ? '+' : ''}${metrics.totalProfit.toFixed(2)}
+                {(metrics.sessionProfit ?? metrics.totalProfit) >= 0 ? '+' : '-'}$
+                {Math.abs(metrics.sessionProfit ?? metrics.totalProfit).toFixed(2)}
               </span>
               <span className="text-slate-400">
                 ({metrics.wins}W/{metrics.losses}L)
               </span>
+              {!isRunning &&
+                metrics.lastStopReason &&
+                (metrics.lastStopReason.toLowerCase().includes('take profit') ||
+                  metrics.lastStopReason.toLowerCase().includes('stop loss')) && (
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      metrics.lastStopReason.toLowerCase().includes('take profit')
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                    }`}
+                  >
+                    {metrics.lastStopReason}
+                  </span>
+                )}
             </div>
           </div>
         </div>
