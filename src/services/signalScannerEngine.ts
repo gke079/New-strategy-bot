@@ -2225,7 +2225,7 @@ export class MultiMarketSignalScanner {
 
     const scoreGap = Math.abs(bullScore - bearScore);
 
-    if (bullScore >= 5.0 && bullScore - bearScore >= 2.25 && emaFast >= emaSlow && netAtrMove > 0.3) {
+    if ((bullScore >= 3.5 || isHHHL) && bullScore > bearScore + 0.75 && emaFast >= emaSlow) {
       const strengthPct = Math.min(
         95,
         Math.max(58, Math.round(52 + bullScore * 4.2 + efficiencyRatio * 12))
@@ -2239,7 +2239,7 @@ export class MultiMarketSignalScanner {
       };
     }
 
-    if (bearScore >= 5.0 && bearScore - bullScore >= 2.25 && emaFast <= emaSlow && netAtrMove < -0.3) {
+    if ((bearScore >= 3.5 || isLHLL) && bearScore > bullScore + 0.75 && emaFast <= emaSlow) {
       const strengthPct = Math.min(
         95,
         Math.max(58, Math.round(52 + bearScore * 4.2 + efficiencyRatio * 12))
@@ -2341,59 +2341,13 @@ export class MultiMarketSignalScanner {
 
     if (!inInitialWarmup && !inCandleGuard) {
       if (trendEval.direction === 'uptrend') {
-        // Direction decided by Market Trend: ONLY UP only. Now verify bullish candle momentum:
-        if (curEval.isStrongBullish) {
-          discoveredSide = 'ONLY_UP';
-        } else if (
-          st.lockedOnlyUpDown &&
-          st.lockedOnlyUpDown.candleEpoch === activeCandle.epoch &&
-          st.lockedOnlyUpDown.contractType === 'ONLY_UP' &&
-          curEval.direction === 'bullish' &&
-          curEval.bodyPct >= 34 &&
-          curEval.impulseRatio >= 0.35
-        ) {
-          // Keep Run button active during a 2-tick entry pullback inside the same bullish candle
-          discoveredSide = 'ONLY_UP';
-          displayMomentumPct = Math.max(
-            curEval.momentumPct,
-            st.lockedOnlyUpDown.peakMomentumPct - 4
-          );
-        } else if (secIntoCandle < Math.min(22, Math.round(windowSec * 0.18)) && prevCandle) {
-          const prevEval = this.score2mCandle(prevCandle, avgBody, pipUnit);
-          if (prevEval.isStrongBullish && curEval.direction !== 'bearish') {
-            discoveredSide = 'ONLY_UP';
-            displayBodyPct = prevEval.bodyPct;
-            displayImpulse = prevEval.impulseRatio;
-            displayMomentumPct = prevEval.momentumPct;
-          }
-        }
+        // Good market found for Only Up
+        discoveredSide = 'ONLY_UP';
+        displayMomentumPct = Math.max(curEval.momentumPct, trendEval.strengthPct);
       } else if (trendEval.direction === 'downtrend') {
-        // Direction decided by Market Trend: ONLY DOWN only. Now verify bearish candle momentum:
-        if (curEval.isStrongBearish) {
-          discoveredSide = 'ONLY_DOWN';
-        } else if (
-          st.lockedOnlyUpDown &&
-          st.lockedOnlyUpDown.candleEpoch === activeCandle.epoch &&
-          st.lockedOnlyUpDown.contractType === 'ONLY_DOWN' &&
-          curEval.direction === 'bearish' &&
-          curEval.bodyPct >= 34 &&
-          curEval.impulseRatio >= 0.35
-        ) {
-          // Keep Run button active during a 2-tick entry bounce inside the same bearish candle
-          discoveredSide = 'ONLY_DOWN';
-          displayMomentumPct = Math.max(
-            curEval.momentumPct,
-            st.lockedOnlyUpDown.peakMomentumPct - 4
-          );
-        } else if (secIntoCandle < Math.min(22, Math.round(windowSec * 0.18)) && prevCandle) {
-          const prevEval = this.score2mCandle(prevCandle, avgBody, pipUnit);
-          if (prevEval.isStrongBearish && curEval.direction !== 'bullish') {
-            discoveredSide = 'ONLY_DOWN';
-            displayBodyPct = prevEval.bodyPct;
-            displayImpulse = prevEval.impulseRatio;
-            displayMomentumPct = prevEval.momentumPct;
-          }
-        }
+        // Good market found for Only Down
+        discoveredSide = 'ONLY_DOWN';
+        displayMomentumPct = Math.max(curEval.momentumPct, trendEval.strengthPct);
       } else {
         // Market trend is ranging / undecided — clear any stale lock and do not trade
         st.lockedOnlyUpDown = undefined;
@@ -2464,37 +2418,20 @@ export class MultiMarketSignalScanner {
       hasStrongEdge = true;
       isScanning = false;
 
-      const impulseLabel = `${displayImpulse.toFixed(1)}x`;
       distributionSubtext =
         discoveredSide === 'ONLY_UP'
-          ? `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} Bullish ${displayBodyPct}% body (${impulseLabel})`
-          : `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} Bearish ${displayBodyPct}% body (${impulseLabel})`;
-      patternSummary = `Conditions Met · Ready for your entry (${confirmCheck.statusText})`;
+          ? `Good Market · Uptrend ▲ (${trendEval.structureTag}) · Trend Strength ${trendEval.strengthPct}%`
+          : `Good Market · Downtrend ▼ (${trendEval.structureTag}) · Trend Strength ${trendEval.strengthPct}%`;
+      patternSummary = confirmCheck.confirmedNow
+        ? `Good Market Found · Pullback Confirmed (${confirmCheck.statusText}) · Ready to Execute (2 Ticks)`
+        : `Good Market Found · Run active! Armed for pullback entry (${confirmCheck.statusText})`;
     } else {
       isScanning = true;
-      if (trendEval.direction === 'ranging') {
-        scanStatusNote = 'Trend ranging / sideways · Awaiting clear market trend';
-      } else if (trendEval.direction === 'uptrend') {
-        if (curEval.direction === 'bearish') {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} pullback ▼, awaiting bullish momentum`;
-        } else if (curEval.direction === 'neutral' || curEval.impulseRatio < 0.25) {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} flat, awaiting strong bullish candle`;
-        } else if (curEval.bodyPct < 52) {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} Bullish (${curEval.bodyPct}% body), awaiting momentum`;
-        } else {
-          scanStatusNote = `Uptrend ▲ (${trendEval.structureTag}) · ${windowLabel} Bullish (${curEval.impulseRatio.toFixed(1)}x), building momentum`;
-        }
-      } else {
-        if (curEval.direction === 'bullish') {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} bounce ▲, awaiting bearish momentum`;
-        } else if (curEval.direction === 'neutral' || curEval.impulseRatio < 0.25) {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} flat, awaiting strong bearish candle`;
-        } else if (curEval.bodyPct < 52) {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} Bearish (${curEval.bodyPct}% body), awaiting momentum`;
-        } else {
-          scanStatusNote = `Downtrend ▼ (${trendEval.structureTag}) · ${windowLabel} Bearish (${curEval.impulseRatio.toFixed(1)}x), building momentum`;
-        }
-      }
+      hasStrongEdge = false;
+      entryConfirmedNow = false;
+      scanStatusNote = 'Market trend ranging / sideways · Awaiting clear directional trend';
+      distributionSubtext = 'Consolidation · Awaiting breakout or directional trend';
+      patternSummary = 'Scanning for trending market...';
     }
 
     const effectiveCandleDir: 'bullish' | 'bearish' | 'neutral' =

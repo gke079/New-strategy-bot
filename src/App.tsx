@@ -48,7 +48,6 @@ import { TradesHistoryView } from './components/TradesHistoryView';
 import { BottomNavigation, ActiveTab } from './components/BottomNavigation';
 import { DerivApiModal } from './components/DerivApiModal';
 import { AuthModal } from './components/AuthModal';
-import { LoginPage } from './components/LoginPage';
 import { FloatingBotController } from './components/FloatingBotController';
 import { Zap, Cpu, Crosshair, ArrowLeftRight, ShieldCheck } from 'lucide-react';
 
@@ -84,15 +83,6 @@ export default function App() {
 
   // Tabs & Modals
   const [activeTab, setActiveTab] = useState<ActiveTab>('digits');
-  const [currentView, setCurrentView] = useState<'dashboard' | 'login'>(() => {
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      if (urlParams.get('view') === 'login' || urlParams.get('login') === '1') {
-        return 'login';
-      }
-    } catch {}
-    return 'dashboard';
-  });
   const [isApiModalOpen, setIsApiModalOpen] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
@@ -113,9 +103,9 @@ export default function App() {
       }
     } catch {}
     return {
-      isLoggedIn: false,
-      username: '',
-      email: '',
+      isLoggedIn: true,
+      username: 'Demo Trader',
+      email: 'demo@deriv.com',
       balance: 10000.0,
       currency: 'USD',
       isDemo: true,
@@ -809,7 +799,6 @@ export default function App() {
         isDemo: Boolean(acct1 && acct1.startsWith('VR')),
       };
       setUserAccount(authUser);
-      setCurrentView('dashboard');
       try {
         localStorage.setItem('tickedge_auth_session', JSON.stringify(authUser));
       } catch {}
@@ -1452,16 +1441,16 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    const loggedOutAccount: UserAccount = {
-      isLoggedIn: false,
-      username: '',
-      email: '',
+    const resetAccount: UserAccount = {
+      isLoggedIn: true,
+      username: 'Demo Trader',
+      email: 'demo@deriv.com',
       balance: 10000.0,
       currency: 'USD',
       isDemo: true,
     };
-    setUserAccount(loggedOutAccount);
-    setCurrentView('login');
+    setUserAccount(resetAccount);
+    handleResetUserBalance(10000.0);
     try {
       localStorage.removeItem('tickedge_auth_session');
       localStorage.removeItem('tickedge_deriv_token');
@@ -1496,27 +1485,12 @@ export default function App() {
     if (accountData.token) {
       handleAuthorizeDerivToken(accountData.token);
     }
-    setCurrentView('dashboard');
   };
 
   // Compute stats on-the-fly from the ticks buffer based on past ticks (excluding the current tick)
   const pastTicks = useMemo(() => (ticks.length > 1 ? ticks.slice(0, -1) : ticks), [ticks]);
   const digitStats = useMemo(() => calculateDigitStats(pastTicks), [pastTicks]);
   const ratioStats = useMemo(() => calculateRatioStats(pastTicks), [pastTicks]);
-
-  // CRITICAL REQUIREMENT: Tool Login page is the first page a trader sees. One MUST sign in to access the terminal.
-  if (!userAccount.isLoggedIn || currentView === 'login') {
-    return (
-      <LoginPage
-        onLoginSuccess={handleLoginSuccess}
-        userAccount={userAccount}
-        connectionStatus={connectionStatus}
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-        onAuthorizeDerivToken={handleAuthorizeDerivToken}
-      />
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#080d16] text-slate-100 flex flex-col pb-20 selection:bg-[#00e599]/30">
@@ -1529,7 +1503,6 @@ export default function App() {
         onChangeSpeed={handleChangeSpeed}
         onOpenApiModal={() => setIsApiModalOpen(true)}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
-        onOpenLoginPage={() => setCurrentView('login')}
         onLogout={handleLogout}
         userBalance={userAccount.balance}
         isDemo={userAccount.isDemo}
@@ -1546,36 +1519,7 @@ export default function App() {
           activeTab === 'builder' ? 'max-w-6xl' : 'max-w-4xl'
         } w-full mx-auto px-4 py-4 sm:py-6 flex flex-col gap-4 pb-48 sm:pb-52`}
       >
-        {/* Prominent Deriv OAuth Login Banner if not logged in */}
-        {!userAccount.isLoggedIn && (
-          <div className="bg-gradient-to-r from-[#ff444f]/15 via-[#111827] to-[#090d16] border border-[#ff444f]/35 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3.5 shadow-xl animate-in fade-in">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#ff444f]/20 border border-[#ff444f]/40 flex items-center justify-center text-[#ff444f] shrink-0">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="font-bold text-white text-sm">Tool Login & Deriv Authorization</h4>
-                  <span className="text-[10px] bg-[#ff444f]/20 text-[#ff444f] border border-[#ff444f]/40 font-bold px-1.5 py-0.5 rounded uppercase">
-                    OAuth 2.0 & Token
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300">
-                  Connect your Deriv account or trader profile to enable live tick streaming, bot execution, and real/demo balance synchronization.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <button
-                onClick={() => setCurrentView('login')}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-white bg-gradient-to-r from-[#ff444f] via-[#e53945] to-[#cc2936] hover:from-[#ff555f] hover:to-[#ea3943] shadow-[0_0_20px_rgba(255,68,79,0.45)] hover:shadow-[0_0_30px_rgba(255,68,79,0.7)] transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95 border border-[#ff444f]/50"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Open Tool Login Page</span>
-              </button>
-            </div>
-          </div>
-        )}
+
 
         {/* ANALYSIS (DIGITS) TAB */}
         {activeTab === 'digits' && (
@@ -2034,10 +1978,6 @@ export default function App() {
         }}
         onResetBalance={handleResetUserBalance}
         onAuthorizeDerivToken={handleAuthorizeDerivToken}
-        onOpenLoginPage={() => {
-          setIsAuthModalOpen(false);
-          setCurrentView('login');
-        }}
         onLogout={handleLogout}
       />
     </div>

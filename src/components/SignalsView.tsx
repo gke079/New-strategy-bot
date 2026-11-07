@@ -16,7 +16,6 @@ import {
   formatWindowDuration,
   formatTradingViewCountdown,
 } from '../services/signalScannerEngine';
-import { ChartsView } from './ChartsView';
 import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock, Play, CheckCircle2, Bot, Activity, Zap, Search, X } from 'lucide-react';
 import { NumericInput } from './NumericInput';
 
@@ -407,25 +406,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
       ? 'HIGH / LOW TICK'
       : 'DIGIT MATCH';
 
-  const subtitleText =
-    category === 'only_up'
-      ? 'Candlestick & MACD Strategy · Synchronized with Deriv Advanced TradingView 1m candle clock. Good market: Faded Red or Short Dark Green histogram activates the Run button. Entry triggers at final 10 seconds of candle finish.'
-      : category === 'even_odd'
-      ? '3-Tier Quantitative Even/Odd Strategy: S1 (Green & Red same market, Blue opposite, Green <12%, Blue digit entry) · S2 (All 3 movers same market, dominancy ≥10%, 2 opposite digits entry) · S3 (Green & Blue same, Red opposite, dominancy ≥10%, Red digit then opposite digit entry).'
-      : category === 'over_under'
-      ? 'Over 4, 5, 6, 7 (53/45/35/30%) & Under 5, 4, 3, 2 (53/45/35/30%) only. Entry waits for ≥3 consecutive opposite digits + 1 winning confirmation digit, then trades continuously.'
-      : category === 'only_up_down'
-      ? onlyUpDownStrategy === 'ema_rsi'
-        ? '5m Candlestick EMA(5/14) + RSI(7) Strategy · Good Market: Uptrend (EMA 5 > 14 & RSI > 50) or Downtrend (EMA 14 > 5 & RSI < 50) activates Run button. Guard: No trade when RSI > 75 or < 35. Entry: 2 consecutive candle pullback retests. Duration: 2 Ticks.'
-        : 'All windows operate using 5m timeframe with asynchronous staggered scanning (25s offsets). Strict guards: No trade in first 1 min (0s–60s) for signal confirmation, and no trade in last 20s to protect against candle trend shifts.'
-      : category === 'high_low_tick'
-      ? 'All windows operate using 5m timeframe with asynchronous staggered scanning (25s offsets). Strict guards: No trade in first 1 min (0s–60s) for signal confirmation, and no trade in last 20s to protect against candle trend shifts.'
-      : 'Finds the digit with more occurrence in the last 10 ticks and trades Digit Match continuously on the Normal Bot.';
 
-  const chartAnalysis5m =
-    category === 'high_low_tick' && scannerRef.current
-      ? scannerRef.current.getMarket5mSummary(chartMarket.id)
-      : null;
 
   const compactInputClass = `w-16 px-1.5 py-1.5 rounded-lg border text-center font-mono tabular-nums text-xs sm:text-sm font-bold focus:outline-none focus:border-[#2563eb] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
     isLight
@@ -480,10 +461,6 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
             </div>
           )}
         </div>
-
-        <p className="text-xs sm:text-sm text-slate-400 max-w-2xl leading-relaxed">
-          {subtitleText}
-        </p>
       </div>
 
       {/* 2. COMPACT PARAMETER STRIP (Stake · Ticks · Martingale · Take profit · Stop loss) */}
@@ -880,25 +857,10 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                 5m Momentum & Structure · 2 Ticks
               </button>
             </div>
-            <span className="text-[11px] font-mono text-slate-500 ml-auto hidden sm:inline">
-              {onlyUpDownStrategy === 'ema_rsi'
-                ? 'EMA 5/14 Trend · RSI 35–75 Guard · 2x Pullback Entry · 2 Ticks'
-                : 'Staggered 5m Scanning · 25s Offsets · Continuous'}
-            </span>
           </div>
         )}
       </div>
 
-      {/* 3B. DERIV ADVANCED TRADINGVIEW CHART (1M FOR ONLY UP / 5M FOR HIGH LOW TICK & ONLY UP/DOWN) */}
-      {(category === 'high_low_tick' || category === 'only_up' || category === 'only_up_down') && (
-        <ChartsView
-          market={chartMarket}
-          defaultTimePeriod={category === 'only_up' ? '1m' : '5m'}
-          markets={SIGNAL_MARKETS}
-          onSelectMarket={setChartMarket}
-          analysis5m={category === 'high_low_tick' ? chartAnalysis5m : null}
-        />
-      )}
 
       {/* 3C. DERIV SYNTHETIC MARKETS FILTER & SEARCH TOOLBAR */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-200">
@@ -1099,21 +1061,6 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
                 {/* Right Header: Quote, Digit Badge & Live Stream Dot */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {(category === 'high_low_tick' || category === 'only_up_down') && (
-                    <button
-                      type="button"
-                      onClick={() => setChartMarket(snap.market)}
-                      title={`Inspect ${snap.market.name} on Advanced TradingView`}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-bold border flex items-center gap-1 cursor-pointer transition-colors ${
-                        chartMarket.id === snap.market.id
-                          ? 'bg-sky-50 text-sky-700 border-sky-300'
-                          : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                      }`}
-                    >
-                      <TrendingUp className="w-2.5 h-2.5" />
-                      <span>Chart</span>
-                    </button>
-                  )}
 
                   {/* Last Price & Digit Badge */}
                   <div className="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 text-[11px] font-mono tabular-nums">
@@ -1214,9 +1161,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         ? `No trade · Long Dark Red (${snap.scanSecondsLeft}s left)`
                         : `Run (awaiting Faded Red or Short Dark Green MACD...)`
                       : category === 'only_up_down'
-                      ? snap.marketTrend === 'ranging'
-                        ? `Run (awaiting ${snap.scanWindowLabel} trend...)`
-                        : `Run (trend confirmed · awaiting momentum...)`
+                      ? `Run (awaiting ${snap.scanWindowLabel} trend · market ranging...)`
                       : category === 'high_low_tick'
                       ? `Run (awaiting ${snap.scanWindowLabel} wicks...)`
                       : 'Run (scanning for market...)'}
@@ -1311,8 +1256,8 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                     </div>
                   )}
 
-                  {/* 5m Candle User Decision Bar (if high_low_tick or only_up_down momentum) */}
-                  {(category === 'high_low_tick' || (category === 'only_up_down' && onlyUpDownStrategy === 'momentum')) && (
+                  {/* 5m Candle User Decision Bar (if high_low_tick) */}
+                  {category === 'high_low_tick' && (
                     <div className="p-1.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-1 text-[11px]">
                       <span className="text-slate-500 font-medium text-[10px]">Start:</span>
                       <div className="inline-flex rounded-md bg-white p-0.5 border border-slate-200">
@@ -1589,22 +1534,19 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       </button>
                     )
                   ) : (() => {
+                    const isOnlyUpDown = category === 'only_up_down';
                     const isEmaRsiStrategy =
-                      category === 'only_up_down' && onlyUpDownStrategy === 'ema_rsi';
-                    const is5mStrategy =
-                      category === 'high_low_tick' ||
-                      (category === 'only_up_down' && onlyUpDownStrategy === 'momentum');
+                      isOnlyUpDown && onlyUpDownStrategy === 'ema_rsi';
+                    const is5mStrategy = category === 'high_low_tick';
                     const timingMode = getEntryTimingMode(snap.market.id);
                     const isUserImmediate = is5mStrategy
                       ? timingMode === 'user_click'
-                      : isEmaRsiStrategy
-                      ? false
-                      : snap.signalEntryTrigger === 'immediate';
+                      : false;
                     const effectiveTrigger: SignalEntryTrigger = isUserImmediate
                       ? 'immediate'
                       : snap.signalEntryTrigger;
                     const tradeTicks =
-                      category === 'only_up_down'
+                      isOnlyUpDown
                         ? ticks >= 2 && ticks <= 5
                           ? ticks
                           : 2
@@ -1644,7 +1586,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                           <span>
                             {isUserImmediate
                               ? 'Start Trade Now'
-                              : isEmaRsiStrategy
+                              : isOnlyUpDown
                               ? `RUN ONLY ${snap.contractType === 'ONLY_UP' ? 'UP' : 'DOWN'} (2 Ticks)`
                               : category === 'even_odd' && snap.evenOddStrategyId
                               ? `RUN ${snap.contractType} (${snap.evenOddStrategyId})`
@@ -1654,10 +1596,10 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         <span className="text-[10px] sm:text-[11px] font-semibold text-blue-100 font-mono">
                           {isUserImmediate
                             ? 'Immediate Execution'
-                            : isEmaRsiStrategy
+                            : isOnlyUpDown
                             ? snap.entryConfirmedNow
-                              ? '⚡ Retest Confirmed · Fires Now'
-                              : 'Armed · Waits for 2-Candle Retest'
+                              ? '⚡ Pullback Confirmed · Fires Now'
+                              : 'Armed · Waits for Pullback Entry'
                             : snap.entryConfirmedNow
                             ? '⚡ Fires Now'
                             : category === 'even_odd' && snap.evenOddEntryRuleText

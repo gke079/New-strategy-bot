@@ -16,7 +16,6 @@ interface HeaderProps {
   onToggleTheme: () => void;
   isLoggedIn?: boolean;
   username?: string;
-  onOpenLoginPage?: () => void;
   onLogout?: () => void;
 }
 
@@ -35,7 +34,6 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
   isLoggedIn,
   username,
-  onOpenLoginPage,
   onLogout,
 }) => {
   const handleLogin = () => {
@@ -269,12 +267,12 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           ) : (
             <button
-              onClick={onOpenLoginPage || onOpenAuthModal}
-              className="px-3.5 py-1.5 rounded-lg font-bold text-xs sm:text-sm transition-all duration-200 shadow-[0_0_15px_rgba(255,68,79,0.4)] hover:shadow-[0_0_25px_rgba(255,68,79,0.65)] flex items-center gap-1.5 bg-gradient-to-r from-[#ff444f] via-[#e53945] to-[#cc2936] hover:from-[#ff555f] hover:to-[#ea3943] text-white active:scale-95 cursor-pointer border border-[#ff444f]/50"
-              title="Open Tool Login Portal"
+              onClick={onOpenAuthModal}
+              className="px-3 py-1.5 rounded-lg font-bold text-xs sm:text-sm transition-all flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+              title="Open Account Modal"
             >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Tool Login</span>
+              <User className="w-3.5 h-3.5" />
+              <span>Account</span>
             </button>
           )}
 
