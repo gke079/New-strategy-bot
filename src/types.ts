@@ -287,6 +287,8 @@ export type SignalEntryTrigger =
   | 'over_after_3_opp_confirm'
   | 'only_up_after_down_confirm'
   | 'only_down_after_up_confirm'
+  | 'only_up_ema_rsi_pullback'
+  | 'only_down_ema_rsi_pullback'
   | 'only_up_macd_candle_10s'
   | 'high_tick_3_rising_confirm'
   | 'low_tick_3_falling_confirm'

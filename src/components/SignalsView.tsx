@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
    BotMetrics,
   Market,
@@ -12,11 +12,12 @@ import {
   MultiMarketSignalScanner,
   SIGNAL_MARKETS,
   SignalCategory,
+  OnlyUpDownStrategy,
   formatWindowDuration,
   formatTradingViewCountdown,
 } from '../services/signalScannerEngine';
 import { ChartsView } from './ChartsView';
-import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock, Play, CheckCircle2, Bot, Activity, Zap } from 'lucide-react';
+import { Square, RotateCcw, ArrowUpRight, TrendingUp, Clock, Play, CheckCircle2, Bot, Activity, Zap, Search, X } from 'lucide-react';
 import { NumericInput } from './NumericInput';
 
 
@@ -216,7 +217,12 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   const [category, setCategory] = useState<SignalCategory>('even_odd');
   const [evenOddStrategyFilter, setEvenOddStrategyFilter] = useState<'all' | 'S1' | 'S2' | 'S3'>('all');
   const [overUnderBarrier, setOverUnderBarrier] = useState<BarrierFilter>('all');
+  const [onlyUpDownStrategy, setOnlyUpDownStrategy] = useState<OnlyUpDownStrategy>('ema_rsi');
   const [chartMarket, setChartMarket] = useState<Market>(SIGNAL_MARKETS[0]);
+  const [marketCategoryFilter, setMarketCategoryFilter] = useState<
+    'all' | 'volatility' | 'volatility-1s' | 'jump' | 'step'
+  >('all');
+  const [marketSearchQuery, setMarketSearchQuery] = useState<string>('');
   const [entryTimingModes, setEntryTimingModes] = useState<Record<string, 'user_click' | 'auto_momentum'>>({});
 
   const getEntryTimingMode = (marketId: string): 'user_click' | 'auto_momentum' => {
@@ -244,9 +250,9 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   const maxTicksForTab =
     category === 'only_up_down' || category === 'only_up' || category === 'high_low_tick' ? 5 : 10;
   const effectiveDefaultTicks =
-    category === 'only_up'
+    category === 'only_up' || category === 'only_up_down'
       ? (rawConfiguredTicks >= minTicksForTab && rawConfiguredTicks <= maxTicksForTab ? rawConfiguredTicks : 2)
-      : category === 'only_up_down' || category === 'high_low_tick'
+      : category === 'high_low_tick'
       ? (rawConfiguredTicks >= minTicksForTab && rawConfiguredTicks <= maxTicksForTab ? rawConfiguredTicks : 5)
       : (rawConfiguredTicks >= minTicksForTab && rawConfiguredTicks <= maxTicksForTab ? rawConfiguredTicks : 1);
   const ticks = Math.min(maxTicksForTab, Math.max(minTicksForTab, effectiveDefaultTicks));
@@ -256,13 +262,20 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
   const handleSelectCategory = (newCat: SignalCategory) => {
     setCategory(newCat);
-    // User requirement: default ticks be 2 for only_up, 5 for only_up_down and high_low_tick, and 1 for even_odd and over_under
-    if (newCat === 'only_up') {
+    // User requirement: default ticks be 2 for only_up and only_up_down, 5 for high_low_tick, and 1 for even_odd and over_under
+    if (newCat === 'only_up' || newCat === 'only_up_down') {
       onUpdateNormalBotConfig({ duration: 2, durationUnit: 't' });
-    } else if (newCat === 'only_up_down' || newCat === 'high_low_tick') {
+    } else if (newCat === 'high_low_tick') {
       onUpdateNormalBotConfig({ duration: 5, durationUnit: 't' });
     } else {
       onUpdateNormalBotConfig({ duration: 1, durationUnit: 't' });
+    }
+  };
+
+  const handleSelectOnlyUpDownStrategy = (strat: OnlyUpDownStrategy) => {
+    setOnlyUpDownStrategy(strat);
+    if (category === 'only_up_down') {
+      onUpdateNormalBotConfig({ duration: 2, durationUnit: 't' });
     }
   };
 
@@ -320,7 +333,13 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
   };
 
   const rawSnapshots: MarketSignalSnapshot[] = scannerRef.current
-    ? scannerRef.current.getSnapshots(category, overUnderBarrier, ticks, evenOddStrategyFilter)
+    ? scannerRef.current.getSnapshots(
+        category,
+        overUnderBarrier,
+        ticks,
+        evenOddStrategyFilter,
+        onlyUpDownStrategy
+      )
     : [];
 
   // Hard category invariant: each signal tab strictly holds ONLY its own contract family
@@ -343,6 +362,31 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
     }
     return snap.contractType === 'MATCHES';
   });
+
+  const marketCounts = useMemo(() => {
+    return {
+      all: snapshots.length,
+      volatility: snapshots.filter((s) => s.market.category === 'volatility').length,
+      'volatility-1s': snapshots.filter((s) => s.market.category === 'volatility-1s').length,
+      jump: snapshots.filter((s) => s.market.category === 'jump').length,
+      step: snapshots.filter((s) => s.market.category === 'step').length,
+    };
+  }, [snapshots]);
+
+  const filteredSnapshots: MarketSignalSnapshot[] = useMemo(() => {
+    return snapshots.filter((snap) => {
+      const catMatch =
+        marketCategoryFilter === 'all' || snap.market.category === marketCategoryFilter;
+      if (!catMatch) return false;
+      if (!marketSearchQuery.trim()) return true;
+      const q = marketSearchQuery.toLowerCase().trim();
+      return (
+        snap.market.name.toLowerCase().includes(q) ||
+        snap.market.symbol.toLowerCase().includes(q) ||
+        snap.market.id.toLowerCase().includes(q)
+      );
+    });
+  }, [snapshots, marketCategoryFilter, marketSearchQuery]);
 
   const isActiveSignalForCurrentTab =
     normalBotRunning && activeSignal !== null && activeSignal.category === category;
@@ -371,7 +415,9 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
       : category === 'over_under'
       ? 'Over 4, 5, 6, 7 (53/45/35/30%) & Under 5, 4, 3, 2 (53/45/35/30%) only. Entry waits for ≥3 consecutive opposite digits + 1 winning confirmation digit, then trades continuously.'
       : category === 'only_up_down'
-      ? 'All windows operate using 5m timeframe with asynchronous staggered scanning (25s offsets). Strict guards: No trade in first 1 min (0s–60s) for signal confirmation, and no trade in last 20s to protect against candle trend shifts.'
+      ? onlyUpDownStrategy === 'ema_rsi'
+        ? '5m Candlestick EMA(5/14) + RSI(7) Strategy · Good Market: Uptrend (EMA 5 > 14 & RSI > 50) or Downtrend (EMA 14 > 5 & RSI < 50) activates Run button. Guard: No trade when RSI > 75 or < 35. Entry: 2 consecutive candle pullback retests. Duration: 2 Ticks.'
+        : 'All windows operate using 5m timeframe with asynchronous staggered scanning (25s offsets). Strict guards: No trade in first 1 min (0s–60s) for signal confirmation, and no trade in last 20s to protect against candle trend shifts.'
       : category === 'high_low_tick'
       ? 'All windows operate using 5m timeframe with asynchronous staggered scanning (25s offsets). Strict guards: No trade in first 1 min (0s–60s) for signal confirmation, and no trade in last 20s to protect against candle trend shifts.'
       : 'Finds the digit with more occurrence in the last 10 ticks and trades Digit Match continuously on the Normal Bot.';
@@ -806,10 +852,45 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
             </span>
           </div>
         )}
+
+        {category === 'only_up_down' && (
+          <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-200">
+            <span className="text-xs font-bold text-slate-700">Strategy:</span>
+            <div className="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200 gap-0.5">
+              <button
+                type="button"
+                onClick={() => handleSelectOnlyUpDownStrategy('ema_rsi')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  onlyUpDownStrategy === 'ema_rsi'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                5m EMA(5/14) + RSI(7) Retest · 2 Ticks
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectOnlyUpDownStrategy('momentum')}
+                className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  onlyUpDownStrategy === 'momentum'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                5m Momentum & Structure · 2 Ticks
+              </button>
+            </div>
+            <span className="text-[11px] font-mono text-slate-500 ml-auto hidden sm:inline">
+              {onlyUpDownStrategy === 'ema_rsi'
+                ? 'EMA 5/14 Trend · RSI 35–75 Guard · 2x Pullback Entry · 2 Ticks'
+                : 'Staggered 5m Scanning · 25s Offsets · Continuous'}
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* 3B. DERIV ADVANCED TRADINGVIEW CHART (1M FOR ONLY UP / 5M FOR HIGH LOW TICK) */}
-      {(category === 'high_low_tick' || category === 'only_up') && (
+      {/* 3B. DERIV ADVANCED TRADINGVIEW CHART (1M FOR ONLY UP / 5M FOR HIGH LOW TICK & ONLY UP/DOWN) */}
+      {(category === 'high_low_tick' || category === 'only_up' || category === 'only_up_down') && (
         <ChartsView
           market={chartMarket}
           defaultTimePeriod={category === 'only_up' ? '1m' : '5m'}
@@ -819,9 +900,73 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
         />
       )}
 
+      {/* 3C. DERIV SYNTHETIC MARKETS FILTER & SEARCH TOOLBAR */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-200">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-bold text-slate-700 mr-1">Markets:</span>
+          {(
+            [
+              { id: 'all', label: `All (${marketCounts.all})` },
+              { id: 'volatility', label: `Plain Vol (${marketCounts.volatility})` },
+              { id: 'volatility-1s', label: `1s Vol (${marketCounts['volatility-1s']})` },
+              { id: 'jump', label: `Jump (${marketCounts.jump})` },
+              { id: 'step', label: `Step (${marketCounts.step})` },
+            ] as const
+          ).map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setMarketCategoryFilter(tab.id)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap border ${
+                marketCategoryFilter === tab.id
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="relative flex items-center min-w-[200px] sm:w-64">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 pointer-events-none" />
+          <input
+            type="text"
+            value={marketSearchQuery}
+            onChange={(e) => setMarketSearchQuery(e.target.value)}
+            placeholder="Search 23 markets (e.g. 15, 30, 90, Jump, Step)..."
+            className="w-full pl-8 pr-7 py-1 text-xs rounded-lg border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+          />
+          {marketSearchQuery && (
+            <button
+              type="button"
+              onClick={() => setMarketSearchQuery('')}
+              className="absolute right-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* 4. HIGH-DENSITY COMPACT MULTI-MARKET BOT CARDS GRID (MOBILE-OPTIMIZED) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
-        {snapshots.map((snap) => {
+      {filteredSnapshots.length === 0 ? (
+        <div className="p-8 rounded-xl border border-dashed border-slate-300 text-center flex flex-col items-center justify-center gap-2 bg-slate-50">
+          <p className="text-sm font-semibold text-slate-700">No markets match your current filter</p>
+          <button
+            type="button"
+            onClick={() => {
+              setMarketCategoryFilter('all');
+              setMarketSearchQuery('');
+            }}
+            className="px-3 py-1 text-xs font-bold bg-blue-600 text-white rounded-lg hover:bg-blue-700 cursor-pointer"
+          >
+            Show All {marketCounts.all} Markets
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
+          {filteredSnapshots.map((snap) => {
           const isThisCardRunning =
             isActiveSignalForCurrentTab && activeSignal?.marketId === snap.market.id;
 
@@ -893,6 +1038,21 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       <span className="text-[10px] font-mono text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 font-semibold">
                         {snap.market.id}
                       </span>
+                      {snap.market.category === 'volatility-1s' && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                          1s
+                        </span>
+                      )}
+                      {snap.market.category === 'jump' && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                          Jump
+                        </span>
+                      )}
+                      {snap.market.category === 'step' && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 border border-purple-200">
+                          Step
+                        </span>
+                      )}
                     </div>
                     {/* Timeframe & Trend row */}
                     <div className="flex items-center gap-1 text-[10px] font-mono mt-0.5 text-slate-500">
@@ -923,7 +1083,15 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       ) : category === 'only_up' ? (
                         <span className="text-slate-700 font-semibold">1m MACD</span>
                       ) : (
-                        <span className="text-slate-500">Synthetic</span>
+                        <span className="text-slate-500">
+                          {snap.market.category === 'volatility-1s'
+                            ? '1s Volatility'
+                            : snap.market.category === 'jump'
+                            ? 'Jump Index'
+                            : snap.market.category === 'step'
+                            ? 'Step Index'
+                            : 'Volatility Index'}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -931,7 +1099,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
 
                 {/* Right Header: Quote, Digit Badge & Live Stream Dot */}
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {category === 'high_low_tick' && (
+                  {(category === 'high_low_tick' || category === 'only_up_down') && (
                     <button
                       type="button"
                       onClick={() => setChartMarket(snap.market)}
@@ -983,6 +1151,10 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       <span className="text-xs font-bold tracking-wide text-slate-900 uppercase truncate">
                         {snap.isClosingGuard
                           ? 'NO TRADE · CLOSING 20S GUARD'
+                          : category === 'only_up_down' && snap.onlyUpDownStrategyId === 'ema_rsi'
+                          ? snap.isRsiExtreme
+                            ? 'NO TRADE · RSI 35-75 GUARD'
+                            : 'ANALYSING 5M EMA & RSI'
                           : category === 'only_up'
                           ? snap.macdHistogramState === 'faded_green'
                             ? 'NO TRADE · FADED GREEN'
@@ -1020,7 +1192,9 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                     type="button"
                     disabled
                     className={`w-full py-1.5 px-3 rounded-lg text-xs font-semibold text-center cursor-not-allowed border truncate transition-colors ${
-                      snap.macdHistogramState === 'faded_green'
+                      snap.isRsiExtreme
+                        ? 'bg-rose-50 text-rose-800 border-rose-200'
+                        : snap.macdHistogramState === 'faded_green'
                         ? 'bg-amber-50 text-amber-800 border-amber-200'
                         : snap.macdHistogramState === 'long_dark_red'
                         ? 'bg-rose-50 text-rose-800 border-rose-200'
@@ -1029,6 +1203,10 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                   >
                     {snap.isClosingGuard
                       ? `No trade · Closing 20s (${snap.scanSecondsLeft}s left)`
+                      : category === 'only_up_down' && snap.onlyUpDownStrategyId === 'ema_rsi'
+                      ? snap.isRsiExtreme
+                        ? snap.scanStatusNote
+                        : `Run (awaiting 5m EMA & RSI Good Market...)`
                       : category === 'only_up'
                       ? snap.macdHistogramState === 'faded_green'
                         ? `No trade · Faded Green (${snap.scanSecondsLeft}s left)`
@@ -1133,8 +1311,8 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                     </div>
                   )}
 
-                  {/* 5m Candle User Decision Bar (if high_low_tick or only_up_down) */}
-                  {(category === 'high_low_tick' || category === 'only_up_down') && (
+                  {/* 5m Candle User Decision Bar (if high_low_tick or only_up_down momentum) */}
+                  {(category === 'high_low_tick' || (category === 'only_up_down' && onlyUpDownStrategy === 'momentum')) && (
                     <div className="p-1.5 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between gap-1 text-[11px]">
                       <span className="text-slate-500 font-medium text-[10px]">Start:</span>
                       <div className="inline-flex rounded-md bg-white p-0.5 border border-slate-200">
@@ -1160,6 +1338,101 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         >
                           3-Tick Auto
                         </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ONLY UP / DOWN 5m EMA(5/14) + RSI(7) Strategy Panel */}
+                  {category === 'only_up_down' && snap.onlyUpDownStrategyId === 'ema_rsi' && (
+                    <div className="p-2 rounded-lg bg-blue-50/50 border border-blue-100 flex flex-col gap-1.5 shadow-2xs">
+                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border flex items-center gap-1 ${
+                              snap.isEmaGoodMarket && !snap.isRsiExtreme
+                                ? 'bg-emerald-100 border-emerald-400 text-emerald-800'
+                                : snap.isRsiExtreme
+                                ? 'bg-rose-100 border-rose-400 text-rose-800'
+                                : 'bg-amber-100 border-amber-400 text-amber-800'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full ${
+                                snap.isEmaGoodMarket && !snap.isRsiExtreme
+                                  ? 'bg-emerald-500 animate-ping'
+                                  : 'bg-slate-400'
+                              }`}
+                            />
+                            <span>
+                              {snap.isRsiExtreme
+                                ? 'RSI 35–75 Guard'
+                                : snap.isEmaGoodMarket
+                                ? 'Good Market Active'
+                                : 'Awaiting Setup'}
+                            </span>
+                          </span>
+                          <span
+                            className={`text-[10px] font-mono font-bold ${
+                              snap.isEmaGoodMarket && !snap.isRsiExtreme
+                                ? 'text-emerald-700'
+                                : 'text-slate-600'
+                            }`}
+                          >
+                            {snap.isEmaGoodMarket && !snap.isRsiExtreme ? 'Run Active ✔' : 'Wait ✕'}
+                          </span>
+                        </div>
+
+                        <span className="text-[10px] font-mono font-bold text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                          Duration: 2 Ticks
+                        </span>
+                      </div>
+
+                      {/* Indicators Row: EMA 5, EMA 14, RSI 7 */}
+                      <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-center">
+                        <div className="p-1 rounded bg-white border border-slate-200 flex flex-col">
+                          <span className="text-[9px] font-bold text-slate-500">EMA (5)</span>
+                          <span className="font-black text-slate-900">
+                            {snap.ema1Value !== undefined ? snap.ema1Value.toFixed(2) : '—'}
+                          </span>
+                        </div>
+                        <div className="p-1 rounded bg-white border border-slate-200 flex flex-col">
+                          <span className="text-[9px] font-bold text-slate-500">EMA (14)</span>
+                          <span className="font-black text-slate-900">
+                            {snap.ema2Value !== undefined ? snap.ema2Value.toFixed(2) : '—'}
+                          </span>
+                        </div>
+                        <div
+                          className={`p-1 rounded border flex flex-col ${
+                            snap.isRsiExtreme
+                              ? 'bg-rose-50 border-rose-300 text-rose-900'
+                              : snap.rsiValue !== undefined &&
+                                ((snap.contractType === 'ONLY_UP' && snap.rsiValue > 50) ||
+                                  (snap.contractType === 'ONLY_DOWN' && snap.rsiValue < 50))
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                              : 'bg-white border-slate-200 text-slate-900'
+                          }`}
+                        >
+                          <span className="text-[9px] font-bold text-slate-500">RSI (7) [35–75]</span>
+                          <span className="font-black">
+                            {snap.rsiValue !== undefined ? snap.rsiValue.toFixed(1) : '50.0'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Retest / Pullback Status */}
+                      <div className="text-[10px] font-medium text-blue-950 bg-white p-1.5 rounded border border-blue-200 flex items-center justify-between gap-1">
+                        <span className="truncate">
+                          🔄 {snap.retestStatusText || 'Waiting for 2-candle pullback'}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded text-[9px] font-black font-mono shrink-0 ${
+                            snap.entryConfirmedNow
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : 'bg-amber-50 text-amber-800 border border-amber-300'
+                          }`}
+                        >
+                          {snap.entryConfirmedNow ? '⚡ Entry Ready' : 'Armed (Wait Entry)'}
+                        </span>
                       </div>
                     </div>
                   )}
@@ -1234,7 +1507,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                     >
                       <span className="truncate">
                         {normalBotWaitingForEntry
-                          ? normalBotEntryStatus || 'Waiting for 10s candle finish...'
+                          ? normalBotEntryStatus || 'Waiting for entry confirmation...'
                           : `Trading continuous ($${normalBotStake.toFixed(2)} · TP $${takeProfit})`}
                       </span>
                       <span className="underline shrink-0">Stop</span>
@@ -1316,10 +1589,26 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                       </button>
                     )
                   ) : (() => {
-                    const is5mStrategy = category === 'high_low_tick' || category === 'only_up_down';
+                    const isEmaRsiStrategy =
+                      category === 'only_up_down' && onlyUpDownStrategy === 'ema_rsi';
+                    const is5mStrategy =
+                      category === 'high_low_tick' ||
+                      (category === 'only_up_down' && onlyUpDownStrategy === 'momentum');
                     const timingMode = getEntryTimingMode(snap.market.id);
-                    const isUserImmediate = is5mStrategy ? timingMode === 'user_click' : snap.signalEntryTrigger === 'immediate';
-                    const effectiveTrigger: SignalEntryTrigger = isUserImmediate ? 'immediate' : snap.signalEntryTrigger;
+                    const isUserImmediate = is5mStrategy
+                      ? timingMode === 'user_click'
+                      : isEmaRsiStrategy
+                      ? false
+                      : snap.signalEntryTrigger === 'immediate';
+                    const effectiveTrigger: SignalEntryTrigger = isUserImmediate
+                      ? 'immediate'
+                      : snap.signalEntryTrigger;
+                    const tradeTicks =
+                      category === 'only_up_down'
+                        ? ticks >= 2 && ticks <= 5
+                          ? ticks
+                          : 2
+                        : ticks;
 
                     return (
                       <button
@@ -1334,7 +1623,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                             signalEntryTrigger: effectiveTrigger,
                             entryConfirmedNow: isUserImmediate || snap.entryConfirmedNow,
                             stake,
-                            ticks,
+                            ticks: tradeTicks,
                             martingale,
                             takeProfit,
                             stopLoss,
@@ -1355,6 +1644,8 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                           <span>
                             {isUserImmediate
                               ? 'Start Trade Now'
+                              : isEmaRsiStrategy
+                              ? `RUN ONLY ${snap.contractType === 'ONLY_UP' ? 'UP' : 'DOWN'} (2 Ticks)`
                               : category === 'even_odd' && snap.evenOddStrategyId
                               ? `RUN ${snap.contractType} (${snap.evenOddStrategyId})`
                               : 'Run this bot'}
@@ -1363,6 +1654,10 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
                         <span className="text-[10px] sm:text-[11px] font-semibold text-blue-100 font-mono">
                           {isUserImmediate
                             ? 'Immediate Execution'
+                            : isEmaRsiStrategy
+                            ? snap.entryConfirmedNow
+                              ? '⚡ Retest Confirmed · Fires Now'
+                              : 'Armed · Waits for 2-Candle Retest'
                             : snap.entryConfirmedNow
                             ? '⚡ Fires Now'
                             : category === 'even_odd' && snap.evenOddEntryRuleText
@@ -1432,6 +1727,7 @@ export const SignalsView: React.FC<SignalsViewProps> = ({
           );
         })}
       </div>
+    )}
     </div>
   );
 };

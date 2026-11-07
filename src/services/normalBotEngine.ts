@@ -389,11 +389,16 @@ export class NormalBotExecutor {
     }
     if (
       this.config.contractType === 'ONLY_UP' &&
-      (trigger === 'only_up_after_down_confirm' || trigger === 'only_up_macd_candle_10s')
+      (trigger === 'only_up_after_down_confirm' ||
+        trigger === 'only_up_ema_rsi_pullback' ||
+        trigger === 'only_up_macd_candle_10s')
     ) {
       return trigger;
     }
-    if (this.config.contractType === 'ONLY_DOWN' && trigger === 'only_down_after_up_confirm') {
+    if (
+      this.config.contractType === 'ONLY_DOWN' &&
+      (trigger === 'only_down_after_up_confirm' || trigger === 'only_down_ema_rsi_pullback')
+    ) {
       return trigger;
     }
     if (this.config.contractType === 'HIGH_TICK' && trigger === 'high_tick_3_rising_confirm') {
@@ -512,7 +517,11 @@ export class NormalBotExecutor {
       return oppStreak >= 3;
     }
 
-    if (trigger === 'only_up_after_down_confirm' || trigger === 'rise_after_fall_confirm') {
+    if (
+      trigger === 'only_up_ema_rsi_pullback' ||
+      trigger === 'only_up_after_down_confirm' ||
+      trigger === 'rise_after_fall_confirm'
+    ) {
       if (allTicks.length < 3 || this.getTickStepDirection(allTicks, lastIdx) !== 'up') {
         return false;
       }
@@ -524,7 +533,11 @@ export class NormalBotExecutor {
       return downStreak >= 2;
     }
 
-    if (trigger === 'only_down_after_up_confirm' || trigger === 'fall_after_rise_confirm') {
+    if (
+      trigger === 'only_down_ema_rsi_pullback' ||
+      trigger === 'only_down_after_up_confirm' ||
+      trigger === 'fall_after_rise_confirm'
+    ) {
       if (allTicks.length < 3 || this.getTickStepDirection(allTicks, lastIdx) !== 'down') {
         return false;
       }
@@ -667,6 +680,30 @@ export class NormalBotExecutor {
         return `Entry armed (${oppStreak}x ≤${barrier}) · Next >${barrier} starts continuous trades`;
       }
       return `Waiting entry: ${oppStreak}/3 (≤${barrier}) → 1 (>${barrier}) confirm`;
+    }
+
+    if (trigger === 'only_up_ema_rsi_pullback') {
+      let fallStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(ticks, i) === 'down') fallStreak++;
+        else break;
+      }
+      if (fallStreak >= 2) {
+        return `Pullback armed (${fallStreak}x Fall ▼) · Next Rise ▲ executes Only Up`;
+      }
+      return `Waiting entry: ${fallStreak}/2 Downward Pullback → Rise ▲ confirm`;
+    }
+
+    if (trigger === 'only_down_ema_rsi_pullback') {
+      let riseStreak = 0;
+      for (let i = lastIdx; i >= 0; i--) {
+        if (this.getTickStepDirection(ticks, i) === 'up') riseStreak++;
+        else break;
+      }
+      if (riseStreak >= 2) {
+        return `Pullback armed (${riseStreak}x Rise ▲) · Next Fall ▼ executes Only Down`;
+      }
+      return `Waiting entry: ${riseStreak}/2 Upward Pullback → Fall ▼ confirm`;
     }
 
     if (trigger === 'only_up_after_down_confirm' || trigger === 'rise_after_fall_confirm') {

@@ -308,7 +308,7 @@ export default function App() {
             stake: s,
             initialStake: s,
             martingale: next.martingale === 2.0 ? 1.5 : next.martingale || 1.5,
-            duration: isHighLow || isOnlyUpDown ? 5 : isDigitOrEvenOdd ? 1 : (next.duration || 1),
+            duration: isHighLow ? 5 : isOnlyUpDown ? 2 : isDigitOrEvenOdd ? 1 : (next.duration || 1),
             durationUnit: 't' as const,
             takeProfit: next.takeProfit === 0.1 || !next.takeProfit ? Number((s * 2).toFixed(2)) : next.takeProfit,
           };
@@ -1379,10 +1379,8 @@ export default function App() {
         : isHighLowTick
         ? Math.min(5, Math.max(1, Math.round(req.prediction || 5)))
         : req.prediction;
-    const resolvedTicks = isOnlyUpStrategy
+    const resolvedTicks = isOnlyUpStrategy || isOnlyUpDown
       ? Math.min(5, Math.max(2, Math.round(req.ticks || 2)))
-      : isOnlyUpDown
-      ? Math.min(5, Math.max(2, Math.round(req.ticks || 5)))
       : isHighLowTick
       ? 5
       : Math.min(10, Math.max(1, Math.round(req.ticks || 1)));

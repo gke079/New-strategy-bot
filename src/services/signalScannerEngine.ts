@@ -1,6 +1,12 @@
 import { Market, SignalEntryTrigger, TradeContractType } from '../types';
 import { SYNTHETIC_MARKETS } from './markets';
-import { calculateMACD, evaluateMacdHistogram, MacdHistogramState } from './indicators';
+import {
+  calculateMACD,
+  evaluateMacdHistogram,
+  MacdHistogramState,
+  calculateEMA,
+  calculateRSI,
+} from './indicators';
 
 export type SignalCategory =
   | 'even_odd'
@@ -10,6 +16,7 @@ export type SignalCategory =
   | 'high_low_tick'
   | 'only_up';
 export type BarrierFilter = 'all' | 2 | 3 | 4 | 5 | 6 | 7;
+export type OnlyUpDownStrategy = 'momentum' | 'ema_rsi';
 
 export interface DigitBarrierStat {
   digit: number;
@@ -135,21 +142,50 @@ export interface MarketSignalSnapshot {
   redBarPct?: number;
   evenDigitsGe10Count?: number;
   oddDigitsGe10Count?: number;
+  // Strategy 2: 5m EMA (5/14) + RSI(7) Retest fields
+  onlyUpDownStrategyId?: 'momentum' | 'ema_rsi';
+  emaPeriod1?: number; // 5
+  ema1Value?: number;
+  emaPeriod2?: number; // 14
+  ema2Value?: number;
+  rsiPeriod?: number; // 7
+  rsiValue?: number;
+  isEmaGoodMarket?: boolean;
+  isRsiExtreme?: boolean;
+  retestStatusText?: string;
 }
 
 export const SIGNAL_MARKET_IDS = [
+  // 1. Plain Volatility Indices (V10, V25, V50, V75, V100)
   'R_10',
   'R_25',
   'R_50',
   'R_75',
   'R_100',
+
+  // 2. 1s Volatility Indices (V10 1s, V15 1s, V25 1s, V30 1s, V50 1s, V75 1s, V90 1s, V100 1s)
   '1HZ10V',
+  '1HZ15V',
   '1HZ25V',
+  '1HZ30V',
   '1HZ50V',
   '1HZ75V',
+  '1HZ90V',
   '1HZ100V',
-  'stpRNG',
+
+  // 3. Jump Indices (J10, J25, J50, J75, J100)
+  'JD10',
+  'JD25',
   'JD50',
+  'JD75',
+  'JD100',
+
+  // 4. Step Indices (STEP 100, STEP 200, STEP 300, STEP 400, STEP 500)
+  'stpRNG',
+  'stpRNG2',
+  'stpRNG3',
+  'stpRNG4',
+  'stpRNG5',
 ];
 
 let derivServerTimeOffsetSec = 0;
@@ -192,7 +228,6 @@ export const SIGNAL_MARKETS: Market[] = SIGNAL_MARKET_IDS.map((id) =>
 ).filter((m): m is Market => Boolean(m));
 
 /**
-/**
  * Standard 5-Minute Analysis Timeframe (300 seconds).
  * Technical analysis (Wilder's RSI-14, 5m OHLC candles, both-sides wicks, market trend EMAs,
  * swing structure, and momentum) operates on the 5-minute timeframe.
@@ -201,35 +236,13 @@ export const SIGNAL_MARKETS: Market[] = SIGNAL_MARKET_IDS.map((id) =>
  */
 export const DEFAULT_ANALYSIS_TIMEFRAME_SEC = 300;
 
-export const ONLY_UP_DOWN_DEFAULT_WINDOWS: Record<string, number> = {
-  '1HZ100V': 300,
-  '1HZ75V': 300,
-  '1HZ50V': 300,
-  '1HZ25V': 300,
-  '1HZ10V': 300,
-  'R_100': 300,
-  'R_75': 300,
-  'R_50': 300,
-  'R_25': 300,
-  'R_10': 300,
-  'stpRNG': 300,
-  'JD50': 300,
-};
+export const ONLY_UP_DOWN_DEFAULT_WINDOWS: Record<string, number> = Object.fromEntries(
+  SYNTHETIC_MARKETS.map((m) => [m.id, 300])
+);
 
-export const HIGH_LOW_TICK_DEFAULT_WINDOWS: Record<string, number> = {
-  '1HZ100V': 300,
-  '1HZ75V': 300,
-  '1HZ50V': 300,
-  '1HZ25V': 300,
-  '1HZ10V': 300,
-  'R_100': 300,
-  'R_75': 300,
-  'R_50': 300,
-  'R_25': 300,
-  'R_10': 300,
-  'stpRNG': 300,
-  'JD50': 300,
-};
+export const HIGH_LOW_TICK_DEFAULT_WINDOWS: Record<string, number> = Object.fromEntries(
+  SYNTHETIC_MARKETS.map((m) => [m.id, 300])
+);
 
 export function formatWindowDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -353,6 +366,7 @@ export class MultiMarketSignalScanner {
   private isDestroyed = false;
   private isConnected = false;
   private listeners = new Set<() => void>();
+  private subscribeTimers: ReturnType<typeof setTimeout>[] = [];
 
   private onlyUpDownWindows: Record<string, number> = { ...ONLY_UP_DOWN_DEFAULT_WINDOWS };
   private highLowWindows: Record<string, number> = { ...HIGH_LOW_TICK_DEFAULT_WINDOWS };
@@ -613,6 +627,9 @@ export class MultiMarketSignalScanner {
       const ws = new WebSocket(url);
       this.ws = ws;
 
+      this.subscribeTimers.forEach((t) => clearTimeout(t));
+      this.subscribeTimers = [];
+
       ws.onopen = () => {
         if (this.isDestroyed) {
           ws.close();
@@ -623,60 +640,65 @@ export class MultiMarketSignalScanner {
           // Synchronize with Deriv server time for TradingView countdown accuracy
           ws.send(JSON.stringify({ time: 1 }));
         } catch {}
-        SIGNAL_MARKETS.forEach((m) => {
-          try {
-            // 1. Subscribe to live ticks (100-tick history + real-time tick stream)
-            ws.send(
-              JSON.stringify({
-                ticks_history: m.id,
-                adjust_start_time: 1,
-                count: 100,
-                end: 'latest',
-                start: 1,
-                style: 'ticks',
-                subscribe: 1,
-              })
-            );
-            // 2. Subscribe to live 2-minute OHLC candlesticks (granularity: 120s, 25 candles = 50m trend + momentum)
-            ws.send(
-              JSON.stringify({
-                ticks_history: m.id,
-                adjust_start_time: 1,
-                count: 25,
-                end: 'latest',
-                start: 1,
-                style: 'candles',
-                granularity: 120,
-                subscribe: 1,
-              })
-            );
-            // 3. Subscribe to live 5-minute OHLC candlesticks (granularity: 300s, 35 candles for 5m RSI(14) + Wicks)
-            ws.send(
-              JSON.stringify({
-                ticks_history: m.id,
-                adjust_start_time: 1,
-                count: 35,
-                end: 'latest',
-                start: 1,
-                style: 'candles',
-                granularity: 300,
-                subscribe: 1,
-              })
-            );
-            // 4. Subscribe to live 1-minute OHLC candlesticks (granularity: 60s, 50 candles for MACD Only Up)
-            ws.send(
-              JSON.stringify({
-                ticks_history: m.id,
-                adjust_start_time: 1,
-                count: 50,
-                end: 'latest',
-                start: 1,
-                style: 'candles',
-                granularity: 60,
-                subscribe: 1,
-              })
-            );
-          } catch {}
+
+        SIGNAL_MARKETS.forEach((m, idx) => {
+          const timer = setTimeout(() => {
+            if (this.isDestroyed || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+            try {
+              // 1. Subscribe to live ticks (100-tick history + real-time tick stream)
+              this.ws.send(
+                JSON.stringify({
+                  ticks_history: m.id,
+                  adjust_start_time: 1,
+                  count: 100,
+                  end: 'latest',
+                  start: 1,
+                  style: 'ticks',
+                  subscribe: 1,
+                })
+              );
+              // 2. Subscribe to live 2-minute OHLC candlesticks (granularity: 120s, 25 candles = 50m trend + momentum)
+              this.ws.send(
+                JSON.stringify({
+                  ticks_history: m.id,
+                  adjust_start_time: 1,
+                  count: 25,
+                  end: 'latest',
+                  start: 1,
+                  style: 'candles',
+                  granularity: 120,
+                  subscribe: 1,
+                })
+              );
+              // 3. Subscribe to live 5-minute OHLC candlesticks (granularity: 300s, 35 candles for 5m RSI(14) + Wicks)
+              this.ws.send(
+                JSON.stringify({
+                  ticks_history: m.id,
+                  adjust_start_time: 1,
+                  count: 35,
+                  end: 'latest',
+                  start: 1,
+                  style: 'candles',
+                  granularity: 300,
+                  subscribe: 1,
+                })
+              );
+              // 4. Subscribe to live 1-minute OHLC candlesticks (granularity: 60s, 50 candles for MACD Only Up)
+              this.ws.send(
+                JSON.stringify({
+                  ticks_history: m.id,
+                  adjust_start_time: 1,
+                  count: 50,
+                  end: 'latest',
+                  start: 1,
+                  style: 'candles',
+                  granularity: 60,
+                  subscribe: 1,
+                })
+              );
+            } catch {}
+          }, idx * 50);
+          this.subscribeTimers.push(timer);
         });
         this.notify();
       };
@@ -2536,6 +2558,280 @@ export class MultiMarketSignalScanner {
   }
 
   /**
+   * Strategy 2 for Only Up / Only Down:
+   * Timeframe: 5-minute candlesticks
+   * Indicators:
+   *   - EMA 1: period 5
+   *   - EMA 2: period 14
+   *   - RSI: period 7
+   * Conditions for a good market:
+   *   - Identify clear uptrend for Only Up (EMA 5 > EMA 14) and downtrend for Only Down (EMA 14 > EMA 5).
+   *   - For good Only Up: EMA 5 > EMA 14 and RSI > 50.
+   *   - For good Only Down: EMA 14 > EMA 5 and RSI < 50.
+   *   - NB: No trade when RSI is above 75 or below 35.
+   *   - If market meets the conditions, activate the Run button and wait for entry to execute trade.
+   * Entry:
+   *   - For Only Up: wait for 2 consecutive candle downward retest / pullback.
+   *   - For Only Down: wait for 2 consecutive candle upward retest / pullback.
+   * Bot Duration: 2 Ticks.
+   */
+  private buildOnlyUpDownEmaRsiSnapshot(
+    st: InternalMarketState,
+    nowSec: number,
+    ticks: number = 2
+  ): MarketSignalSnapshot {
+    const dirs = this.extractStepDirections(st.prices).slice(-100);
+    const windowSec = 300; // 5-minute candlesticks for analysis
+    const windowLabel = '5m';
+
+    // Staggered market scanning calculation so markets scan at different times
+    const shiftedSec = nowSec + st.scanPhaseOffsetSec;
+    const phaseSec = shiftedSec % windowSec;
+    const candleSecondsLeft = Math.max(1, windowSec - phaseSec);
+
+    // 5m candles array
+    const rawCandles =
+      st.candles5m && st.candles5m.length > 0
+        ? st.candles5m
+        : st.candlesOnlyUp && st.candlesOnlyUp.length > 0
+        ? st.candlesOnlyUp
+        : st.candles2m;
+
+    const candles =
+      rawCandles.length > 0
+        ? rawCandles
+        : [
+            {
+              epoch: Math.floor(nowSec / 300) * 300,
+              open: st.lastPrice,
+              high: st.lastPrice,
+              low: st.lastPrice,
+              close: st.lastPrice,
+            },
+          ];
+
+    const closes = candles.map((c) => c.close);
+    // If live price has moved beyond last candle close, incorporate active quote
+    if (st.lastPrice > 0) {
+      if (closes.length === 0 || closes[closes.length - 1] !== st.lastPrice) {
+        closes.push(st.lastPrice);
+      }
+    }
+
+    const ema5Series = calculateEMA(closes, 5);
+    const ema14Series = calculateEMA(closes, 14);
+    const rsi7Series = calculateRSI(closes, 7);
+
+    const validEma5 = ema5Series.filter((v): v is number => typeof v === 'number');
+    const validEma14 = ema14Series.filter((v): v is number => typeof v === 'number');
+    const validRsi7 = rsi7Series.filter((v): v is number => typeof v === 'number');
+
+    const ema5 = validEma5.length > 0 ? validEma5[validEma5.length - 1] : st.lastPrice;
+    const ema14 = validEma14.length > 0 ? validEma14[validEma14.length - 1] : st.lastPrice;
+    const rsi7 = validRsi7.length > 0 ? validRsi7[validRsi7.length - 1] : 50;
+
+    // Boundary threshold guard: "NB: No trade when RSI is above 75 or below 35."
+    const isRsiOverbought = rsi7 > 75;
+    const isRsiOversold = rsi7 < 35;
+    const isRsiExtreme = isRsiOverbought || isRsiOversold;
+
+    // Trend identification based on EMA 5 and EMA 14
+    const isUptrend = ema5 > ema14;
+    const isDowntrend = ema5 < ema14;
+
+    // Conditions for a good market:
+    // Only Up: EMA 5 > EMA 14, RSI > 50, and RSI <= 75 (not overbought)
+    const isGoodOnlyUp = isUptrend && rsi7 > 50 && !isRsiOverbought;
+    // Only Down: EMA 14 > EMA 5, RSI < 50, and RSI >= 35 (not oversold)
+    const isGoodOnlyDown = isDowntrend && rsi7 < 50 && !isRsiOversold;
+
+    const isGoodMarket = (isGoodOnlyUp || isGoodOnlyDown) && !isRsiExtreme;
+
+    // Direction and contract
+    const contractType: 'ONLY_UP' | 'ONLY_DOWN' = isGoodOnlyDown
+      ? 'ONLY_DOWN'
+      : isGoodOnlyUp
+      ? 'ONLY_UP'
+      : isDowntrend
+      ? 'ONLY_DOWN'
+      : 'ONLY_UP';
+
+    const signalLabel: 'ONLY UP' | 'ONLY DOWN' =
+      contractType === 'ONLY_UP' ? 'ONLY UP' : 'ONLY DOWN';
+    const signalTone: 'emerald' | 'fuchsia' =
+      contractType === 'ONLY_UP' ? 'emerald' : 'fuchsia';
+    const signalEntryTrigger: SignalEntryTrigger =
+      contractType === 'ONLY_UP'
+        ? 'only_up_ema_rsi_pullback'
+        : 'only_down_ema_rsi_pullback';
+
+    // Entry evaluation:
+    // "Entry: for only up, wait for two consecutive candle downward retest/ pullback and for only down, wait for two consecutive candle upward retest/pullback"
+    const cActive = candles[candles.length - 1];
+    const cPrev1 = candles.length >= 2 ? candles[candles.length - 2] : undefined;
+    const cPrev2 = candles.length >= 3 ? candles[candles.length - 3] : undefined;
+
+    let entryConfirmedNow = false;
+    let retestStatusText = '';
+
+    if (contractType === 'ONLY_UP') {
+      // Downward candle check: close < open or close < prev.close
+      const prev2IsDown = cPrev2 ? cPrev2.close < cPrev2.open : false;
+      const prev1IsDown = cPrev1 ? cPrev1.close < cPrev1.open : false;
+      const activeIsDown = cActive ? cActive.close < cActive.open : false;
+
+      // Also check recent tick movement in case entry trigger is checking tick momentum
+      const last2TicksDown = dirs.slice(-2).filter((d) => d === 'down').length === 2;
+
+      if ((prev2IsDown && prev1IsDown) || (prev1IsDown && activeIsDown) || last2TicksDown) {
+        entryConfirmedNow = true;
+        retestStatusText = '2x Downward Candle Pullback Confirmed';
+      } else if (prev1IsDown || activeIsDown) {
+        entryConfirmedNow = false;
+        retestStatusText = '1/2 Downward Pullback Candle Formed';
+      } else {
+        entryConfirmedNow = false;
+        retestStatusText = 'Waiting 2 consecutive downward pullback candles';
+      }
+    } else {
+      // Downward trend: wait for two consecutive candle upward retest/pullback
+      const prev2IsUp = cPrev2 ? cPrev2.close > cPrev2.open : false;
+      const prev1IsUp = cPrev1 ? cPrev1.close > cPrev1.open : false;
+      const activeIsUp = cActive ? cActive.close > cActive.open : false;
+
+      const last2TicksUp = dirs.slice(-2).filter((d) => d === 'up').length === 2;
+
+      if ((prev2IsUp && prev1IsUp) || (prev1IsUp && activeIsUp) || last2TicksUp) {
+        entryConfirmedNow = true;
+        retestStatusText = '2x Upward Candle Retest Confirmed';
+      } else if (prev1IsUp || activeIsUp) {
+        entryConfirmedNow = false;
+        retestStatusText = '1/2 Upward Candle Retest Formed';
+      } else {
+        entryConfirmedNow = false;
+        retestStatusText = 'Waiting 2 consecutive upward pullback candles';
+      }
+    }
+
+    let isScanning = !isGoodMarket;
+    let hasStrongEdge = isGoodMarket;
+    let scanStatusNote = '';
+    let distributionSubtext = '';
+    let patternSummary = '';
+
+    if (isRsiOverbought) {
+      isScanning = true;
+      hasStrongEdge = false;
+      scanStatusNote = `NO TRADE · RSI OVERBOUGHT (${rsi7.toFixed(1)} > 75)`;
+      distributionSubtext = `5m EMA(5/14): ${ema5.toFixed(2)} / ${ema14.toFixed(2)} · RSI(7): ${rsi7.toFixed(1)} (>75)`;
+      patternSummary = `No Trade: RSI(7) = ${rsi7.toFixed(1)} is above 75 guard threshold. Run paused until RSI normalizes.`;
+    } else if (isRsiOversold) {
+      isScanning = true;
+      hasStrongEdge = false;
+      scanStatusNote = `NO TRADE · RSI OVERSOLD (${rsi7.toFixed(1)} < 35)`;
+      distributionSubtext = `5m EMA(5/14): ${ema5.toFixed(2)} / ${ema14.toFixed(2)} · RSI(7): ${rsi7.toFixed(1)} (<35)`;
+      patternSummary = `No Trade: RSI(7) = ${rsi7.toFixed(1)} is below 35 guard threshold. Run paused until RSI normalizes.`;
+    } else if (isGoodMarket) {
+      // "If a market meets the conditions, activate the run button and wait for the entry to execute the trade."
+      isScanning = false;
+      hasStrongEdge = true;
+      scanStatusNote = `Good Market · ${
+        contractType === 'ONLY_UP'
+          ? 'Uptrend (EMA 5 > 14, RSI > 50)'
+          : 'Downtrend (EMA 14 > 5, RSI < 50)'
+      }`;
+      distributionSubtext =
+        contractType === 'ONLY_UP'
+          ? `EMA 5 (${ema5.toFixed(2)}) > EMA 14 (${ema14.toFixed(2)}) · RSI(7): ${rsi7.toFixed(1)} (Bullish 50–75)`
+          : `EMA 14 (${ema14.toFixed(2)}) > EMA 5 (${ema5.toFixed(2)}) · RSI(7): ${rsi7.toFixed(1)} (Bearish 35–50)`;
+      patternSummary = entryConfirmedNow
+        ? `Good Market Met · ${retestStatusText} · Ready to Execute (Duration: 2 Ticks)`
+        : `Good Market Met · Run active! Waiting for entry (${retestStatusText})`;
+    } else {
+      isScanning = true;
+      hasStrongEdge = false;
+      if (isUptrend && rsi7 <= 50) {
+        scanStatusNote = `Uptrend (EMA 5 > 14) · Waiting RSI (${rsi7.toFixed(1)}) > 50`;
+        distributionSubtext = `EMA 5 (${ema5.toFixed(2)}) > 14 (${ema14.toFixed(2)}) · RSI(7): ${rsi7.toFixed(1)} <= 50`;
+        patternSummary = `Awaiting RSI(7) to cross above 50 to confirm good market for Only Up.`;
+      } else if (isDowntrend && rsi7 >= 50) {
+        scanStatusNote = `Downtrend (EMA 14 > 5) · Waiting RSI (${rsi7.toFixed(1)}) < 50`;
+        distributionSubtext = `EMA 14 (${ema14.toFixed(2)}) > 5 (${ema5.toFixed(2)}) · RSI(7): ${rsi7.toFixed(1)} >= 50`;
+        patternSummary = `Awaiting RSI(7) to cross below 50 to confirm good market for Only Down.`;
+      } else {
+        scanStatusNote = `EMA 5 & 14 converging · Awaiting trend`;
+        distributionSubtext = `EMA 5 (${ema5.toFixed(2)}) ≈ 14 (${ema14.toFixed(2)}) · RSI(7): ${rsi7.toFixed(1)}`;
+        patternSummary = `Market is consolidating. Waiting for EMA 5 and 14 divergence and RSI trend alignment.`;
+      }
+    }
+
+    const entryConfidencePct = isGoodMarket
+      ? Math.min(
+          95,
+          Math.max(
+            72,
+            Math.round(50 + Math.abs(rsi7 - 50) * 1.5 + (entryConfirmedNow ? 10 : 0))
+          )
+        )
+      : 50;
+
+    return {
+      category: 'only_up_down',
+      market: st.market,
+      isLiveWs: st.isLiveWs,
+      lastDigit: st.digits[st.digits.length - 1] ?? 0,
+      lastQuote: st.lastQuote,
+      recentDigits: st.digits.slice(-12),
+      recentDirections: dirs.slice(-12),
+      candle2mDirection: isUptrend ? 'bullish' : isDowntrend ? 'bearish' : 'neutral',
+      marketTrend: isUptrend ? 'uptrend' : isDowntrend ? 'downtrend' : 'ranging',
+      marketTrendSummary: `EMA(5): ${ema5.toFixed(2)} · EMA(14): ${ema14.toFixed(2)} · RSI(7): ${rsi7.toFixed(1)}`,
+      windowTickCount: candles.length,
+      isScanning,
+      isOpeningGuard: false,
+      isClosingGuard: false,
+      candle5mSecondsLeft: candleSecondsLeft,
+      scanSecondsLeft: candleSecondsLeft,
+      scanTotalSeconds: windowSec,
+      scanWindowLabel: windowLabel,
+      scanStatusNote,
+      evenPct: 0,
+      oddPct: 0,
+      overPct: 0,
+      underPct: 0,
+      hotDigit: 0,
+      hotDigitPct: 0,
+      coldDigit: 0,
+      coldDigitPct: 0,
+      barrierStats: [],
+      signalLabel,
+      signalTone,
+      contractType,
+      prediction: 0,
+      signalEntryTrigger,
+      entryConfirmedNow,
+      entryConfidencePct,
+      payoutMultiplier: 3.85, // 2-tick payout on Deriv Only Up/Down
+      edgeDeltaPct: Math.max(0, entryConfidencePct - 50),
+      distributionSubtext,
+      patternSummary,
+      topBarriersSummary: '',
+      hasStrongEdge,
+      // Strategy 2 specific indicators
+      onlyUpDownStrategyId: 'ema_rsi',
+      emaPeriod1: 5,
+      ema1Value: Number(ema5.toFixed(st.market.decimals)),
+      emaPeriod2: 14,
+      ema2Value: Number(ema14.toFixed(st.market.decimals)),
+      rsiPeriod: 7,
+      rsiValue: Number(rsi7.toFixed(1)),
+      isEmaGoodMarket: isGoodMarket,
+      isRsiExtreme,
+      retestStatusText,
+    };
+  }
+
+  /**
    * Standard TradingView / Wilder's 14-period RSI computed over 5-minute candle closes.
    */
   private computeWilderRsi14(closes: number[], period: number = 14): number {
@@ -3150,7 +3446,8 @@ export class MultiMarketSignalScanner {
     category: SignalCategory,
     overUnderBarrier: BarrierFilter = 'all',
     ticks: number = 1,
-    evenOddStrategyFilter: 'all' | 'S1' | 'S2' | 'S3' = 'all'
+    evenOddStrategyFilter: 'all' | 'S1' | 'S2' | 'S3' = 'all',
+    onlyUpDownStrategy: OnlyUpDownStrategy = 'ema_rsi'
   ): MarketSignalSnapshot[] {
     const nowSec = Math.floor(Date.now() / 1000);
 
@@ -3166,6 +3463,9 @@ export class MultiMarketSignalScanner {
         return this.buildOverUnderSnapshot(st, nowSec, overUnderBarrier);
       }
       if (category === 'only_up_down') {
+        if (onlyUpDownStrategy === 'ema_rsi') {
+          return this.buildOnlyUpDownEmaRsiSnapshot(st, nowSec, ticks);
+        }
         return this.buildOnlyUpDownSnapshot(st, nowSec, ticks);
       }
       if (category === 'high_low_tick') {
@@ -3177,6 +3477,8 @@ export class MultiMarketSignalScanner {
 
   public destroy() {
     this.isDestroyed = true;
+    this.subscribeTimers.forEach((t) => clearTimeout(t));
+    this.subscribeTimers = [];
     if (this.tickTimer) clearInterval(this.tickTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.ws) {
